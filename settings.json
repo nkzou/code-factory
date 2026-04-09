@@ -144,7 +144,8 @@
   },
   "model": "opus[1m]",
   "enabledMcpjsonServers": [
-    "atlassian"
+    "atlassian",
+    "datadog-google-workspace"
   ],
   "disabledMcpjsonServers": [
     "datadog"
