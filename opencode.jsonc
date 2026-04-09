@@ -460,5 +460,15 @@
     "atlassian_fetch": "allow",
     "atlassian_download*": "allow",
     "atlassian_atlassianUserInfo": "allow",
+
+    // Google Workspace MCP (read-only):
+    "datadog-google-workspace_*": "ask",
+    "datadog-google-workspace_read_document": "allow",
+    "datadog-google-workspace_read_sheet": "allow",
+    "datadog-google-workspace_get_spreadsheet_metadata": "allow",
+    "datadog-google-workspace_search_files": "allow",
+    "datadog-google-workspace_list_folder_contents": "allow",
+    "datadog-google-workspace_get_file_content": "allow",
+    "datadog-google-workspace_get_file_metadata": "allow",
   },
 }

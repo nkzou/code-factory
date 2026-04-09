@@ -96,7 +96,14 @@
       "mcp__slack__slack_search_users",
       "mcp__slack__slack_search_public",
       "mcp__slack__slack_search_public_and_private",
-      "mcp__slack__slack_read_canvas"
+      "mcp__slack__slack_read_canvas",
+      "mcp__datadog-google-workspace__read_document",
+      "mcp__datadog-google-workspace__read_sheet",
+      "mcp__datadog-google-workspace__get_spreadsheet_metadata",
+      "mcp__datadog-google-workspace__search_files",
+      "mcp__datadog-google-workspace__list_folder_contents",
+      "mcp__datadog-google-workspace__get_file_content",
+      "mcp__datadog-google-workspace__get_file_metadata"
     ],
     "ask": [
       "Bash(sudo *)",
