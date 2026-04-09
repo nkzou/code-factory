@@ -27,6 +27,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 errors=()
 
+# Source local node env if previously installed (mirrors cargo env pattern)
+if [[ -f "$HOME/.local/node/env" ]]; then
+    . "$HOME/.local/node/env"
+fi
+
 # Install or update rtk (Rust Token Killer) via cargo
 echo "Checking rtk installation..."
 if ! command -v cargo &>/dev/null; then
@@ -91,7 +96,21 @@ else
                     tar -xJf "$TMP_DIR/node.tar.xz" -C "$TMP_DIR"
                     rm -rf "$HOME/.local/node"
                     mv "$TMP_DIR/$NODE_DIST" "$HOME/.local/node"
-                    export PATH="$HOME/.local/node/bin:$PATH"
+                    # Create env file (mirrors ~/.cargo/env pattern)
+                    cat > "$HOME/.local/node/env" << 'NODEENV'
+# Node.js environment (installed by code-factory init.sh)
+case ":${PATH}:" in
+    *":$HOME/.local/node/bin:"*) ;;
+    *) export PATH="$HOME/.local/node/bin:$PATH" ;;
+esac
+NODEENV
+                    . "$HOME/.local/node/env"
+                    # Persist in shell profiles so future shells find node
+                    for profile in "$HOME/.bashrc" "$HOME/.profile"; do
+                        if [[ -f "$profile" ]] && ! grep -q '.local/node/env' "$profile"; then
+                            printf '\n# Node.js (installed by code-factory)\n[ -f "$HOME/.local/node/env" ] && . "$HOME/.local/node/env"\n' >> "$profile"
+                        fi
+                    done
                     echo "  OK  node installed ($(node --version))"
                 else
                     errors+=("node: download failed")
