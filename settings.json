@@ -5,7 +5,9 @@
     "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
     "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
+    "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1"
   },
   "attribution": {
     "commit": "",
@@ -149,7 +151,7 @@
       "/private/var/tmp"
     ]
   },
-  "model": "opus[1m]",
+  "model": "opus",
   "enabledMcpjsonServers": [
     "atlassian",
     "datadog-google-workspace"
