@@ -15,7 +15,6 @@
     "pr": ""
   },
   "permissions": {
-    "defaultMode": "plan",
     "allow": [
       "Bash(*)",
       "Read(*)",
@@ -140,6 +139,7 @@
       "Bash(npm install -g *)",
       "Bash(defaults write *)"
     ],
+    "defaultMode": "plan",
     "additionalDirectories": [
       "/Users/rodrigo.fernandes/go",
       "/Users/rodrigo.fernandes/dev",
@@ -160,7 +160,9 @@
     "chrome-devtools",
     "slack"
   ],
-  "disabledMcpjsonServers": ["datadog"],
+  "disabledMcpjsonServers": [
+    "datadog"
+  ],
   "hooks": {
     "PreToolUse": [
       {

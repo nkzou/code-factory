@@ -1,6 +1,6 @@
 # GraphQL Mutations for PR Review Threads
 
-Reference for the `pr-fix` skill. Contains GraphQL mutations for resolving threads and REST commands for replying.
+Reference for the `pr-fix` skill. Contains GraphQL mutations for resolving and replying to threads.
 
 **Fetching threads** is handled by `get-pr-comments.sh` (see Step 2 in SKILL.md). The script returns structured JSON with `thread_id` (GraphQL node ID) and `first_comment_id` (REST API ID) ready for the mutations below.
 
@@ -46,9 +46,54 @@ mutation {
 '
 ```
 
-## Reply to a Review Comment
+## Reply to a Review Thread (Tier 1 — GraphQL, preferred)
 
-Uses the REST API to reply directly to a review comment thread. This creates a threaded reply, not a standalone PR comment.
+Uses the GraphQL `addPullRequestReviewThreadReply` mutation. This is the preferred method because the
+REST reply endpoint (`pulls/comments/{id}/replies`) returns 404 on some repositories (e.g., large monorepos
+with bot-authored review comments) even when the comment exists and permissions are correct.
+
+```bash
+gh api graphql -f query='
+mutation {
+  addPullRequestReviewThreadReply(input: {
+    pullRequestReviewThreadId: "{threadId}"
+    body: "{response text}"
+  }) {
+    comment {
+      id
+      body
+    }
+  }
+}
+'
+```
+
+Replace:
+- `{threadId}` — the `thread_id` field from the script output (same ID used for resolve/unresolve)
+- `{response text}` — the reply body (supports GitHub-flavored markdown). **Escape double quotes** and newlines in the body since it's embedded in a GraphQL string.
+
+For multi-line bodies, use a HEREDOC to build the query:
+
+```bash
+BODY='Line 1
+Line 2 with "quotes"'
+ESCAPED_BODY=$(echo "$BODY" | sed 's/\\/\\\\/g; s/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+gh api graphql -f query="
+mutation {
+  addPullRequestReviewThreadReply(input: {
+    pullRequestReviewThreadId: \"${THREAD_ID}\"
+    body: \"${ESCAPED_BODY}\"
+  }) {
+    comment { id }
+  }
+}
+"
+```
+
+## Reply to a Review Comment (Tier 2 — REST fallback)
+
+Falls back to the REST API when the GraphQL mutation fails (e.g., thread already resolved before reply,
+or `thread_id` is missing). Requires `first_comment_id` from the script output.
 
 ```bash
 gh api repos/{owner}/{repo}/pulls/comments/{databaseId}/replies \
@@ -61,11 +106,12 @@ Replace:
 - `{databaseId}` — the `first_comment_id` from the script output
 - `{response text}` — the reply body (supports GitHub-flavored markdown)
 
-## Fallback: PR Comment When Threaded Reply Unavailable
+**Note:** This endpoint may return 404 on some repositories. If it fails, fall back to Tier 3.
 
-When `first_comment_id` is `0`/missing or the threaded reply endpoint returns an error,
-fall back to a top-level PR comment.
-This is not threaded but clearly references the original review comment.
+## Reply via PR Comment (Tier 3 — last resort)
+
+When both Tier 1 and Tier 2 fail, post a top-level PR comment referencing the original thread.
+This is not threaded but provides traceability.
 
 ```bash
 gh pr comment {number} --body "$(cat <<'EOF'
