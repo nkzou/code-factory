@@ -15,6 +15,7 @@
     "pr": ""
   },
   "permissions": {
+    "defaultMode": "plan",
     "allow": [
       "Bash(*)",
       "Read(*)",
@@ -153,7 +154,12 @@
     ]
   },
   "model": "opus",
-  "enabledMcpjsonServers": ["atlassian", "datadog-google-workspace", "chrome-devtools", "slack"],
+  "enabledMcpjsonServers": [
+    "atlassian",
+    "datadog-google-workspace",
+    "chrome-devtools",
+    "slack"
+  ],
   "disabledMcpjsonServers": ["datadog"],
   "hooks": {
     "PreToolUse": [
@@ -259,6 +265,5 @@
   "autoMemoryEnabled": true,
   "autoDreamEnabled": true,
   "skipDangerousModePermissionPrompt": true,
-  "defaultMode": "plan",
   "bypassPermissionsModeAccepted": true
 }
