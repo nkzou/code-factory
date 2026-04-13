@@ -7,7 +7,8 @@
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
-    "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1"
+    "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"
   },
   "attribution": {
     "commit": "",
@@ -152,13 +153,8 @@
     ]
   },
   "model": "opus",
-  "enabledMcpjsonServers": [
-    "atlassian",
-    "datadog-google-workspace"
-  ],
-  "disabledMcpjsonServers": [
-    "datadog"
-  ],
+  "enabledMcpjsonServers": ["atlassian", "datadog-google-workspace", "chrome-devtools", "slack"],
+  "disabledMcpjsonServers": ["datadog"],
   "hooks": {
     "PreToolUse": [
       {
@@ -187,6 +183,15 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/stop-phrase-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/brag-reminder.sh"
           }
         ]
       }
