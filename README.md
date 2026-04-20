@@ -210,6 +210,7 @@ User descriptions are wrapped in `<feature_request>` tags to prevent prompt inje
      | `mcp.json` | `~/.mcp.json` |
      | `settings.json` | `~/.claude/settings.json` |
      | `opencode.jsonc` | `~/.config/opencode/opencode.jsonc` |
+     | `claude/CLAUDE.md` | `~/.claude/CLAUDE.md` |
 
    - Symlinks files from `hooks/` into `~/.claude/hooks/`.
    - Regenerates `.opencode/` assets by running `./sync-opencode.sh`.

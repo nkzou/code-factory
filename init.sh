@@ -90,10 +90,12 @@ echo ""
 SRCS=(
     "$SCRIPT_DIR/settings.json"
     "$SCRIPT_DIR/opencode.jsonc"
+    "$SCRIPT_DIR/claude/CLAUDE.md"
 )
 DESTS=(
     "$HOME/.claude/settings.json"
     "$HOME/.config/opencode/opencode.jsonc"
+    "$HOME/.claude/CLAUDE.md"
 )
 
 # In workspace mode, force-remove settings.json so linking always succeeds
@@ -116,9 +118,28 @@ for i in "${!SRCS[@]}"; do
 
     if [[ -L "$dest" ]]; then
         rm "$dest"
+    elif [[ -f "$dest" && ! -s "$dest" ]]; then
+        # Empty stub (e.g. Claude Code default ~/.claude/CLAUDE.md) is safe to replace.
+        rm "$dest"
+    elif [[ -f "$dest" ]] && cmp -s "$dest" "$src"; then
+        # Regular file with identical content — Claude Code can rewrite the
+        # symlink as a regular copy. Safe to replace with a symlink.
+        rm "$dest"
+    elif [[ -f "$dest" ]]; then
+        # Regular file with different content — preserve user edits in .bak
+        # before relinking, then error so the user can reconcile manually.
+        backup="${dest}.bak.$(date +%Y%m%d%H%M%S)"
+        if mv "$dest" "$backup"; then
+            errors+=("$src -> $dest: dest differed from source; backed up to $backup")
+            echo "FAIL  $dest differed from source, backed up to $backup and skipped"
+        else
+            errors+=("$src -> $dest: dest differed from source and backup failed")
+            echo "FAIL  could not back up $dest, skipping"
+        fi
+        continue
     elif [[ -e "$dest" ]]; then
-        errors+=("$src -> $dest: destination already exists as a regular file")
-        echo "FAIL  $dest already exists as a regular file, cannot link"
+        errors+=("$src -> $dest: destination already exists (not a regular file)")
+        echo "FAIL  $dest already exists and is not a regular file, cannot link"
         continue
     fi
 
