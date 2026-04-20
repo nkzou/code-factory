@@ -203,7 +203,6 @@ User descriptions are wrapped in `<feature_request>` tags to prevent prompt inje
 
    `init.sh` performs the full local setup:
 
-   - Installs or updates `rtk` via `cargo install --git https://github.com/rtk-ai/rtk --config net.git-fetch-with-cli=true`.
    - Symlinks root configs:
 
      | Source | Destination |

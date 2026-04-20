@@ -3,13 +3,12 @@
 # init.sh -- Bootstrap code-factory: symlink configs and install OpenCode assets globally.
 #
 # This script:
-#   1. Installs rtk (Rust Token Killer) via cargo if not already present.
-#   2. Symlinks configuration files into the user's home directory.
-#   3. Syncs MCP servers into Claude Code.
-#   4. Symlinks Claude Code hooks, rules, and git hooks.
-#   5. Runs sync-opencode.sh to generate OpenCode assets in the repo.
-#   6. Symlinks .opencode/{skills,agents,commands} into ~/.config/opencode/.
-#   7. Updates Claude Code CLI and all installed marketplace plugins.
+#   1. Symlinks configuration files into the user's home directory.
+#   2. Syncs MCP servers into Claude Code.
+#   3. Symlinks Claude Code hooks, rules, and git hooks.
+#   4. Runs sync-opencode.sh to generate OpenCode assets in the repo.
+#   5. Symlinks .opencode/{skills,agents,commands} into ~/.config/opencode/.
+#   6. Updates Claude Code CLI and all installed marketplace plugins.
 #
 # Behavior:
 #   - If the destination is an existing symlink, it is removed and re-created.
@@ -31,44 +30,6 @@ errors=()
 if [[ -f "$HOME/.local/node/env" ]]; then
     . "$HOME/.local/node/env"
 fi
-
-# Install or update rtk (Rust Token Killer) via cargo
-echo "Checking rtk installation..."
-if ! command -v cargo &>/dev/null; then
-    case "$(uname -s)" in
-        Linux)
-            echo "  Installing Rust via rustup..."
-            if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y 2>&1; then
-                # Source cargo env so cargo is available in this session
-                . "$HOME/.cargo/env"
-                echo "  OK  cargo installed ($(cargo --version))"
-            else
-                errors+=("rtk: rustup installation failed")
-                echo "  FAIL  rustup installation failed"
-            fi
-            ;;
-        *)
-            errors+=("rtk: cargo not found, install Rust toolchain first (https://rustup.rs)")
-            echo "FAIL  rtk requires cargo (install Rust via https://rustup.rs)"
-            ;;
-    esac
-fi
-
-if command -v cargo &>/dev/null; then
-    if command -v rtk &>/dev/null && rtk gain &>/dev/null; then
-        echo "  OK  rtk already installed ($(rtk --version 2>/dev/null || echo 'unknown version'))"
-        echo "  Checking for updates..."
-    else
-        echo "  Installing rtk via cargo..."
-    fi
-    if cargo install --git https://github.com/rtk-ai/rtk --config net.git-fetch-with-cli=true 2>&1; then
-        echo "  OK  rtk up-to-date ($(rtk --version 2>/dev/null || echo 'unknown version'))"
-    else
-        errors+=("rtk: cargo install failed")
-        echo "FAIL  rtk installation failed"
-    fi
-fi
-echo ""
 
 # Install Node.js if not available (required by statusLine npx command and hooks)
 echo "Checking Node.js installation..."
