@@ -267,7 +267,7 @@ AskUserQuestion(
 - Workspace names: `<ws-prefix>-<slug>` where ws-prefix is from `whoami | cut -d. -f1`
 
 **`workspaces create` flags** (used in both tables above):
-`--region eu-west-3 --instance-type aws:m6gd.4xlarge --dotfiles https://github.com/rtfpessoa/dotfiles --shell fish`
+`--region eu-west-3 --instance-type aws:m6gd.4xlarge --shell fish`
 
 ### 4a-workspace: Post-Creation Setup
 

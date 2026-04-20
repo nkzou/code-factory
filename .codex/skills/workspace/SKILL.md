@@ -88,7 +88,6 @@ If the user-provided name already starts with the prefix, do not double it.
 | `--repo` | Current git repo name | Ask user if not in a repo |
 | `--branch` | New feature branch via `/branch` | Created and pushed to remote |
 | `--region` | User preference | `eu-west-3` |
-| `--dotfiles` | Always | `https://github.com/rtfpessoa/dotfiles` |
 | `--shell` | Always | `fish` |
 | `--instance-type` | Always | `aws:m6gd.4xlarge` (ARM Graviton2) |
 
@@ -159,11 +158,13 @@ workspaces create <name> \
   --branch <branch-name> \
   --region eu-west-3 \
   --instance-type aws:m6gd.4xlarge \
-  --dotfiles https://github.com/rtfpessoa/dotfiles \
   --shell fish
 ```
 
 Omit `--repo` if not in a git repo and user doesn't specify one.
+
+Dotfiles are auto-applied from `DataDog/workspaces-dotfiles/users/<first>.<last>/`.
+Do not pass `--dotfiles` here — it would override the auto-apply chain.
 
 **Do NOT wait for the command to finish.** Report immediately after launching.
 The background task will notify when complete — do not poll or sleep.
