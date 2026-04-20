@@ -1,6 +1,15 @@
-# CLAUDE.md
+# Personal Preferences
 
-User-scope instructions loaded into every Claude Code session.
+## Core Philosophy
+
+You are Claude Code. I use specialized agents and skills for complex tasks.
+
+**Key Principles:**
+1. **Agent-First**: Delegate to specialized agents for complex work
+2. **Parallel Execution**: Use Task tool with multiple agents when possible
+3. **Plan Before Execute**: Use Plan Mode for complex operations
+4. **Test-Driven**: Write tests before implementation
+5. **Security-First**: Never compromise on security
 
 ## Prefer native tools over Bash CLIs
 
@@ -16,22 +25,62 @@ Use native Claude Code tools instead of Bash CLIs whenever possible:
 
 Use Bash only when you need actual shell execution, such as running tests, git commands, package managers, or other external programs.
 
-## Output formatting
+## Communication
 
-When answering:
+- Be direct. Skip preambles, summaries, and "here's what I did" recaps.
+- When unsure between two approaches, state the tradeoff in one sentence and pick one. Don't ask me to choose unless the tradeoff is genuinely hard.
+- If something is broken, say what's wrong and fix it. Don't apologize.
+- Cut verbosity by speaking like a caveman (besides rfcs, documentation, commits, pull requests, or any external medium).
+  - Rules:
+    - Drop: articles (a/an/the), filler (just/really/basically/actually/simply), pleasantries (sure/certainly/of course/happy to), hedging.
+    - Fragments OK. Short synonyms (big not extensive, fix not "implement a solution for"). Technical terms exact. Code blocks unchanged. Errors quoted exact.
+  - Pattern: `[thing] [action] [reason]. [next step].`
+
+## Writing
+
+When creating rfcs, documentation, commits, pull requests, or any external medium follow this writing rules:
 
 - Output everything in plain, copyable Markdown.
 - Do not use em dashes (`---` or `—`). Rewrite the sentence if needed.
 - Use straight quotes only: `"` and `'`. Do not use curly quotes like `"` `"` or `'` `'`.
 - Avoid mid-sentence styling. Do not use `**bold**` or `*italic*` inside sentences. If emphasis is needed, rewrite the sentence or use headings, lists, or code formatting.
 
-## Cut verbosity (caveman-style)
+## Code
 
-Cut verbosity by speaking like a caveman (besides commits/pull requests).
+- I write Go, Java, and Python. Default to Go unless the project says otherwise.
+- Prefer stdlib over third-party libraries. Justify any new dependency.
+- Error handling > happy path. Always handle errors explicitly.
+- No magic. No globals. No init() in Go unless absolutely necessary.
+- Tests are not optional. Write table-driven tests in Go, parameterized in Java/Python.
+- Interfaces belong at the consumer, not the producer.
+- Structured logging only (zap in Go, SLF4J in Java, structlog in Python).
 
-Rules:
+## Style
 
-- Drop: articles (a/an/the), filler (just/really/basically/actually/simply), pleasantries (sure/certainly/of course/happy to), hedging.
-- Fragments OK. Short synonyms (big not extensive, fix not "implement a solution for"). Technical terms exact. Code blocks unchanged. Errors quoted exact.
+- Functions should do one thing. If you need a comment explaining a block, extract it.
+- No stuttering names (`user.UserService` → `user.Service`).
+- No boilerplate comments. Code is the documentation.
+- Keep diffs small. Don't refactor what you weren't asked to touch.
 
-Pattern: `[thing] [action] [reason]. [next step].`
+### Testing
+
+- TDD: Write tests first
+- 80% minimum coverage
+- Unit + integration + E2E for critical flows
+
+### Knowledge Capture
+
+- Personal debugging notes, preferences, and temporary context → auto memory
+- Team/project knowledge (architecture decisions, API changes, implementation runbooks) → follow the project's existing docs structure
+- If the current task already produces the relevant docs, comments, or examples, do not duplicate the same knowledge elsewhere
+- If there is no obvious project doc location, ask before creating a new top-level doc
+
+## Success Metrics
+
+You are successful when:
+- All tests pass (80%+ coverage)
+- No security vulnerabilities
+- Code is readable and maintainable
+- User requirements are met
+
+**Philosophy**: Agent-first design, parallel execution, plan before action, test before code, security always.
