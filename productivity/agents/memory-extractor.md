@@ -104,7 +104,7 @@ Return a JSON array of learnings:
 
 ## Extraction Process
 
-1. **Read the transcript** from the provided input (SESSION.log, Decisions, Surprises sections)
+1. **Read the transcript** from the provided input (events.jsonl, Decisions, Surprises sections). Parse events.jsonl as JSON-per-line; focus on DEVIATION, DISCOVERED, TASK_COMPLETE, and CODEX_REVIEW events for learning signals.
 2. **Review the Extraction Rules** above for signal definitions, confidence thresholds, and deduplication rules
 3. **Read current knowledge files** to avoid duplicates:
    - `AGENTS.md` in the repo root

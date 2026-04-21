@@ -29,6 +29,7 @@ Announce: "I'm using the /do skill to orchestrate feature development with lifec
 - **Cite or flag.** Every claim about the codebase must reference a specific file, function, or command output — ungrounded claims propagate through planning and cause implementation failures. Unverified claims must be flagged as open questions.
 - **Contract before critique.** Every task gets concrete pass/fail acceptance criteria extracted from the plan before the adversarial review loop begins. The task-critic evaluates against this contract — not vibes.
 - **Proof-based findings.** Every critical finding from review agents must cite file:line and provide concrete evidence (edge case, logical argument, failing test, or reproduction steps). Vague concerns are not actionable.
+- **Discovered work, not disavowed.** Failures, broken tests, latent bugs, or out-of-scope issues surfaced during a task MUST be recorded as a `discovered_from` bundle in `tasks/` — never ignored, worked around, or dismissed as "not our problem." Deleting, disabling, or commenting out a failing test without a corresponding discovered bundle is a workflow violation. Pressure on context is the very moment filing costs least (one frontmatter write) and matters most.
 
 ## Context Efficiency
 
@@ -438,7 +439,12 @@ If entering from Resume Mode (Step 3 classified as state file reference):
    - If `tasks/` directory exists: check task bundle statuses against git reality
    - Check next pending task's preconditions against current codebase state
    - Store discrepancies as `state_drift` for inclusion in the next orchestrator dispatch
-5. **Regenerate SNAPSHOT.md** — the existing snapshot may be stale if the session crashed mid-task.
+5. **Pending-triage surfacing:** count discovered bundles with
+   `Grep(pattern="^status: discovered$", path="tasks/", output_mode="count")`. If the count is
+   non-zero, include a one-line summary in the resume message to the user:
+   `N discovered bundle(s) pending triage (see SNAPSHOT.md Discovered Tasks section; triaged at DONE).`
+   Do not auto-triage on resume — the user decides fate at DONE.
+6. **Regenerate SNAPSHOT.md** — the existing snapshot may be stale if the session crashed mid-task.
    Follow the Resume Snapshot Protocol in phase-flow.md.
 
 ### 5b: Phase Loop
@@ -504,7 +510,7 @@ while current_phase not in [DONE, ANALYSIS_COMPLETE]:
     EXECUTE:
       Read PLAN.md → extract milestones and dependency graph
       Read tasks/*.md → build milestone status map
-      Initialize SESSION.log if not exists (first EXECUTE entry)
+      Initialize events.jsonl if not exists (append SESSION_START on first EXECUTE entry)
 
       Identify ready milestones: all dependencies complete, status != complete
       Group ready milestones by file overlap (from File Impact Map in PLAN.md):
@@ -513,7 +519,7 @@ while current_phase not in [DONE, ANALYSIS_COMPLETE]:
 
       For each ready milestone (or parallel group):
         Dispatch milestone orchestrator (see 5d)
-        Read updated FEATURE.md + task bundle statuses + SESSION.log
+        Read updated FEATURE.md + task bundle statuses + events.jsonl tail
         If interactive:
           Present milestone report (tasks completed, test status, discoveries, token usage)
           AskUserQuestion: continue / adjust / review code / stop here
@@ -536,7 +542,7 @@ while current_phase not in [DONE, ANALYSIS_COMPLETE]:
       Advance: update FEATURE.md current_phase → DONE
 
     DONE:
-      Load context: FEATURE.md, VALIDATION.md, SESSION.log summary
+      Load context: FEATURE.md, VALIDATION.md, events.jsonl summary
       Dispatch phase orchestrator (see 5c) with <current_phase>DONE</current_phase>
       Read updated FEATURE.md (outcomes, PR URL)
       Report final outcome to user
@@ -585,7 +591,7 @@ Task(
   PLAN_DRAFT: FEATURE.md spec + criteria, full RESEARCH.md, full CONVENTIONS.md
   PLAN_REVIEW: full PLAN.md, full CONVENTIONS.md, FEATURE.md criteria (reviewer); full RESEARCH.md (red-teamer only)
   VALIDATE: FEATURE.md criteria, PLAN.md validation strategy, full CONVENTIONS.md, git diff output
-  DONE: full FEATURE.md, VALIDATION.md, SESSION.log summary>
+  DONE: full FEATURE.md, VALIDATION.md, events.jsonl summary>
 </phase_context>
 
 <state_drift>
@@ -651,7 +657,7 @@ Replaces thin context slices — gives the cold-start orchestrator everything it
 </resume_snapshot>
 
 <session_tail>
-<Last 10 entries from SESSION.log, or empty if first milestone>
+<Last 10 events from events.jsonl (JSONL), or empty if first milestone>
 </session_tail>
 
 <task>
@@ -662,8 +668,9 @@ For each task:
 3. Verify postconditions after completion
 4. Update token_spent_estimate_usd in FEATURE.md (check budget if set)
 At milestone boundary: run /atcommit for atomic commits.
-If deviations occur: follow Plan Amendment Protocol (update PLAN.md task contracts, not just SESSION.log).
-Append TASK_COMPLETE and MILESTONE_COMPLETE entries to SESSION.log.
+If deviations occur: follow Plan Amendment Protocol (update PLAN.md task contracts, not just events.jsonl).
+If the implementer or a reviewer surfaces an issue outside the task contract, file a `discovered_from` bundle (Discovery Capture Protocol in phase-flow.md).
+Append TASK_COMPLETE and MILESTONE_COMPLETE events to events.jsonl (each with `actor: orchestrator`).
 Update task bundle frontmatter (status, verdict, adversarial_rounds, commit_sha).
 Update FEATURE.md Progress section with completed tasks and commit SHAs.
 Do NOT advance current_phase — the outer loop handles that after all milestones complete.
@@ -777,7 +784,7 @@ EXECUTE batch loop, DONE finalization sequence, and all agent dispatch details.
 - **Subagent failure**: Log failure, mark phase as `blocked`, re-dispatch on next loop iteration
 - **Phase loop stuck**: Track PLAN_REVIEW→PLAN_DRAFT and VALIDATE→EXECUTE loop counts; max 3 loops each before escalating to user
 - **Resume after crash**: SKILL.md reads FEATURE.md current_phase, regenerates SNAPSHOT.md, and re-enters the loop at that phase; task bundles enable task-level resume within EXECUTE
-- **Plan deviation during EXECUTE**: Follow Plan Amendment Protocol — update PLAN.md task contracts and downstream preconditions, not just SESSION.log
+- **Plan deviation during EXECUTE**: Follow Plan Amendment Protocol — update PLAN.md task contracts and downstream preconditions, not just events.jsonl
 
 ## State File Schema
 

@@ -16,9 +16,9 @@ only the context that phase needs, loaded from state files.
 | PLAN_DRAFT | FEATURE.md (spec + criteria), full RESEARCH.md, CONVENTIONS.md | Medium |
 | PLAN_REVIEW | full PLAN.md, CONVENTIONS.md, FEATURE.md (criteria) | Medium |
 | BUNDLE_GENERATION | full PLAN.md, full RESEARCH.md, FEATURE.md (criteria), CONVENTIONS.md | Medium |
-| EXECUTE (per milestone) | milestone task bundles, FEATURE.md (progress), SESSION.log tail, CONVENTIONS.md | Medium |
+| EXECUTE (per milestone) | milestone task bundles, FEATURE.md (progress), events.jsonl tail, CONVENTIONS.md | Medium |
 | VALIDATE | FEATURE.md (criteria), PLAN.md (validation strategy), git diff output, CONVENTIONS.md | Medium |
-| DONE | full FEATURE.md, VALIDATION.md, SESSION.log summary | Small |
+| DONE | full FEATURE.md, VALIDATION.md, events.jsonl summary | Small |
 
 Note: PLAN_REVIEW reviewer gets CONVENTIONS.md (compressed conventions) instead of full RESEARCH.md.
 Red-teamer still receives RESEARCH.md for assumption attacks.
@@ -62,8 +62,12 @@ See state-file-schema.md for the full schema.
 5. Include relevant sections from CONVENTIONS.md (only patterns affecting the next task's files)
 6. Summarize completed tasks (one line each: task ID, milestone, what it produced)
 7. Include active deviations and plan amendments
-8. Include budget status if `token_budget_usd` is set
-9. Write to `SNAPSHOT.md` in the state directory
+8. **Enumerate pending triage bundles:** list every `tasks/T-DISC-*.md` where `status: discovered`
+   (`Grep(pattern="^status: discovered$", path="tasks/")`). Populate the Discovered Tasks table with
+   id, discovered_from, discovered_by, risk, and the first-line summary from the bundle body.
+   If none, write "(none)".
+9. Include budget status if `token_budget_usd` is set
+10. Write to `SNAPSHOT.md` in the state directory
 
 **Why snapshots exist:** When a milestone orchestrator starts cold,
 it needs to understand why the plan chose this approach,
@@ -84,21 +88,22 @@ SKILL.md reads PLAN.md to build the milestone dependency graph and reads task bu
 ## EXECUTE Batch Loop
 
 ```
-Plan Critical Review -> Pre-flight validation gate (build + test + lint + typecheck baseline, hard gate) -> Initialize SESSION.log
+Plan Critical Review -> Pre-flight validation gate (build + test + lint + typecheck baseline, hard gate) -> Initialize events.jsonl
   -> Identify ready milestones (dependency graph) -> Execute round -> Batch Report -> Feedback -> Next round
 
 Execute round:
   1. Find READY milestones (all dependencies completed, status = pending or in_progress)
   2. If multiple ready milestones have NO file overlap (per File Impact Map) -> run in PARALLEL
      Otherwise -> run SEQUENTIALLY (current behavior)
-  3. For each active milestone, pick next task:
+  3. For each active milestone, promote next pending task to `ready` (frontmatter status), pick next ready task:
      - Dispatch implementers (parallel across milestones, sequential within)
      - Shift-left (lint/format/typecheck) per task
      - Spec review (max 2 fix cycles) per task
      - Code quality review (max 2 fix cycles) per task
      - Red-team review (HIGH-RISK TASKS ONLY, max 2 fix cycles) per task
-     - Append TASK_COMPLETE to SESSION.log with tokens/duration
-  4. At MILESTONE BOUNDARY: Run /atcommit, append MILESTONE_COMPLETE to SESSION.log
+     - File `discovered_from` bundles for any out-of-scope failures surfaced (Discovery Capture Protocol)
+     - Append TASK_COMPLETE event to events.jsonl with tokens/duration/cost
+  4. At MILESTONE BOUNDARY: Run /atcommit, append MILESTONE_COMPLETE event to events.jsonl
 
 STOP on: missing deps, test failures, unclear instructions, adversarial stalemate on all flaws, plan-invalidating discoveries
 DEVIATION_MINOR: propose plan edit, ask user (interactive) or log and adjust (autonomous)
@@ -206,10 +211,11 @@ The orchestrator works from `<workdir_path>` and writes all state to `~/docs/pla
 
 **Session Activity Log:**
 
-Initialize `SESSION.log` in the state directory on EXECUTE entry.
-Append timestamped entries after every significant action (see state-file-schema.md for entry types and format).
+Initialize `events.jsonl` in the state directory on EXECUTE entry.
+Append one JSON object per line after every significant action (see state-file-schema.md for event types, schema, and required fields).
+Every event MUST include `ts`, `type`, and `actor`.
 The log is append-only — never rewrite or truncate.
-Tell the user the log path so they can open it in their editor to watch progress in real-time.
+Tell the user the log path so they can tail it (`tail -f events.jsonl | jq .`) or query it with `jq` to watch progress in real-time.
 
 **Plan critical review — before implementing anything:**
 
@@ -240,7 +246,8 @@ Parallel dispatch: spawn one implementer Task per ready milestone in a single re
 After all return, run shift-left checks and reviews for each.
 Within a single milestone, tasks always run sequentially (they share files by definition).
 
-Log parallel milestones in SESSION.log: `MILESTONE_START: M-002 (Title) [parallel with M-003]`
+Log parallel milestones as an event:
+`{"ts":"<ISO8601>","type":"MILESTONE_START","actor":"orchestrator","milestone":"M-002","title":"<title>","parallel_with":["M-003"]}`
 
 **Per-task sequence** (same whether running one or multiple milestones):
 
@@ -259,8 +266,12 @@ Log parallel milestones in SESSION.log: `MILESTONE_START: M-002 (Title) [paralle
    Receives relevant plan-level red-team findings to focus on known risk areas.
    Critical findings → implementer fixes (max 2 cycles). High/Medium → logged as tracked risks.
    Skipped entirely for Low and Medium risk tasks.
-6. Mark task complete (only after ACCEPT verdict — safety valve outcomes are blocking),
-   update state, append `TASK_COMPLETE` to SESSION.log with token/duration/adversarial-round metrics
+6. **Discovery Capture Protocol** — before marking the task complete,
+   file a `discovered_from` bundle for every out-of-scope failure the task surfaced.
+   See **Discovery Capture Protocol** section below. This runs even when the adversarial loop ACCEPTs.
+7. Mark task complete (only after ACCEPT verdict — safety valve outcomes are blocking),
+   update state (set bundle `status: complete`, populate `token_cost_usd` and `duration_ms`),
+   append a `TASK_COMPLETE` event to events.jsonl with token/duration/adversarial-round metrics
 
 **Adversarial Review Loop:**
 
@@ -361,6 +372,61 @@ in the intervening round proposed a fix for that flaw, that is a stalemate:
 **Early acceptance:** If the task-critic ACCEPTs on round 1, proceed directly to step 5.
 No adversarial rounds were needed — the implementation was solid on first review.
 
+**Discovery Capture Protocol** (all phases — RESEARCH, PLAN, EXECUTE, VALIDATE):
+
+Every failure, broken test, latent bug, stale doc, or out-of-scope issue surfaced by an agent MUST
+be captured as a `discovered_from` bundle in `tasks/`. The protocol is not EXECUTE-only — obstacles
+uncovered during research, planning, review, or validation deserve the same structural capture.
+Never delete, disable, comment out a failing test, or silently drop a finding to "keep moving" —
+filing a discovered bundle is always the right escape hatch.
+
+**When to file a discovered bundle** (any of the following, in any phase):
+
+| Phase | Signal | Example |
+|-|-|-|
+| EXECUTE | Pre-existing failing test uncovered by the task's work | Unrelated test in same package newly fails after refactor |
+| EXECUTE | Latent bug the task's code exposes but does not cause | Null pointer in caller revealed by tightened API contract |
+| EXECUTE | Dead code, TODO, or broken invariant spotted while navigating | `// FIXME` comment referencing a real ticket-less defect |
+| EXECUTE | Out-of-scope refactor opportunity blocking clean test coverage | Shared helper needs split to unit-test the new path |
+| EXECUTE/RESEARCH | Convention or doc mismatch with the code as it actually exists | CONVENTIONS.md says X, code does Y and Y is the true pattern |
+| RESEARCH | Stale or incorrect Confluence/README/ADR referenced by the feature | Linked design doc still describes v1 API after v2 migration shipped |
+| RESEARCH | Adjacent system defect surfaced during codebase mapping | Explorer finds an unhandled error branch unrelated to the feature |
+| PLAN_DRAFT/PLAN_REVIEW | Planner or reviewer spots work outside scope but worth capturing | Review flags a latent migration safety gap while validating task contracts |
+| VALIDATE | Validator detects a regression outside the feature's changeset | Baseline comparison surfaces a pre-existing flaky test newly unmasked |
+
+**How to file** (one frontmatter write — seconds of work):
+
+1. Create `tasks/T-DISC-<NNN>.md` with frontmatter:
+   ```yaml
+   id: T-DISC-<NNN>
+   status: discovered
+   risk: <low|medium|high>
+   milestone: null
+   discovered_from: <T-XXX | RESEARCH | PLAN_DRAFT | PLAN_REVIEW | VALIDATE>
+   discovered_by: <actor>           # implementer | task-critic | red-teamer | validator | explorer | researcher | planner | reviewer
+   summary: <one-line description>
+   ```
+   For RESEARCH/PLAN/VALIDATE origins where no parent task exists, set `discovered_from` to the
+   phase name (e.g., `RESEARCH`) and leave `milestone: null`.
+2. Body: 3-5 sentences — what was found, where (file:line or doc URL), why it is out of scope for
+   the current feature, what the minimum fix looks like.
+3. Append a `DISCOVERED` event to events.jsonl with `from_task` (or phase name), `discovered`
+   (bundle id), `summary`, and `risk`.
+4. **Never auto-promote** discovered tasks to `ready`. They enter a triage queue the user reviews
+   at batch boundaries, milestone report time, or the DONE-phase triage step (see DONE step 1.3).
+
+**Rationalization resistance — STOP and file a bundle if you catch yourself thinking:**
+
+| Rationalization | Reality |
+|-|-|
+| "This test was already broken — not our problem." | Nothing is pre-existing. If it fails on this branch, YOUR work owns it. File a bundle and document the diagnosis. |
+| "The red-team found a latent bug but it's out of scope — ignore it." | Out-of-scope means *file it*, not *forget it*. A discovered bundle takes 30 seconds and preserves the finding. |
+| "I'll just `t.Skip()` this test to stay green and come back later." | Later never comes. Skipping a test without a discovered bundle is a workflow violation. |
+| "Context is tight — I'll skip filing and remember it." | You will not remember. Context pressure is the exact moment when filing matters most and costs least. |
+| "This is a convention drift, not a bug — doesn't need a task." | Convention drift compounds. File it even if priority is low. |
+
+A single `discovered_from` bundle is cheaper than a post-mortem about silently disavowed work.
+
 **Token and Timing Tracking:**
 
 After each subagent Task completes, extract `total_tokens` and `duration_ms` from the Task result.
@@ -368,9 +434,9 @@ Track cumulatively at three levels:
 
 | Level | What's tracked | When reported |
 |-------|---------------|--------------|
-| Per-task | Sum of implementer + spec reviewer + code quality reviewer | TASK_COMPLETE log entry |
-| Per-milestone | Sum of all tasks in the milestone | MILESTONE_COMPLETE log entry |
-| Grand total | Sum of all milestones + overhead (research, planning, validation) | SESSION_COMPLETE log entry |
+| Per-task | Sum of implementer + task-critic + red-teamer | TASK_COMPLETE event (also written to bundle frontmatter `token_cost_usd` / `duration_ms`) |
+| Per-milestone | Sum of all tasks in the milestone | MILESTONE_COMPLETE event |
+| Grand total | Sum of all milestones + overhead (research, planning, validation) | SESSION_COMPLETE event |
 
 Include token/duration data in batch reports so the user can see resource consumption.
 
@@ -382,9 +448,9 @@ These are rough estimates — precision matters less than having a running total
 
 | Threshold | Action |
 |-|-|
-| 80% of budget | Log `BUDGET_WARNING` in SESSION.log, include in batch report |
+| 80% of budget | Append `BUDGET_WARNING` event to events.jsonl, include in batch report |
 | 100% of budget | **Interactive**: pause, ask user to increase budget or stop gracefully at current milestone |
-| 100% of budget | **Autonomous**: complete the current task, then stop. Do not start the next task. Log `BUDGET_EXHAUSTED`. |
+| 100% of budget | **Autonomous**: complete the current task, then stop. Do not start the next task. Append `BUDGET_EXHAUSTED` event. |
 
 The budget check runs before dispatching each task — not after.
 If the remaining budget is less than the estimated cost of the next task
@@ -393,18 +459,49 @@ surface the budget constraint before starting.
 
 **Batch reporting** (after every batch or parallel round):
 
-Report: tasks completed, test status, discoveries, token usage, duration.
-- **Interactive**: Ask to continue, adjust, review code, or stop
-- **Autonomous**: Output a brief milestone progress line to the user at each MILESTONE_COMPLETE:
-  `Milestone M-XXX complete (<name>). Tasks: N/M done. Tokens: Xk. Duration: Xs. Next: M-YYY.`
-  Log summary and continue (stop only on blockers)
+Every report MUST include the same six fields — discoveries are not optional, they are the
+mechanism that makes the work-disavowal resistance visible to the user.
+
+Required fields: **tasks completed**, **test status**, **discovered bundles this batch**,
+**tokens**, **cost (USD)**, **duration**.
+
+- **Autonomous — one-line format** (emitted at every `MILESTONE_COMPLETE`):
+
+  ```
+  Milestone M-XXX complete (<name>). Tasks: <done>/<total>. Tests: <pass>/<fail>. Discovered: <N>. Tokens: <X>k. Cost: $<Y>. Duration: <Z>s. Next: M-YYY.
+  ```
+
+  `Discovered: 0` when nothing new was filed this batch — always print the field so its absence
+  is informative.
+
+- **Interactive — structured block** (presented between batches):
+
+  ```
+  ## Batch Report — M-XXX
+
+  Tasks: T-001, T-002, T-003 (3/3 complete)
+  Tests: 158 pass / 0 fail (baseline +16)
+  Tokens: 99.7k    Cost: $1.49    Duration: 6m 35s
+
+  Discovered this batch:
+  - T-DISC-001 (from T-002, Medium): <summary>
+  - T-DISC-002 (from T-003, Low): <summary>
+
+  Deviations: A1 applied (rate limiter needs Redis — see PLAN.md Amendments)
+
+  Next: M-002 (Protected Routes). Continue?
+  ```
+
+  When nothing was discovered this batch, replace the Discovered section with
+  `Discovered this batch: none`. Present an `AskUserQuestion` with the usual options:
+  continue / adjust / review code / stop.
 
 At milestone boundary (all tasks in milestone complete + tests pass):
 - Run `/atcommit` to organize ALL accumulated changes into atomic commits grouped by concept
 - `/atcommit` builds dependency graphs and groups files that belong together (e.g., package + tests, wiring + config)
 - Typical result: 3-5 commits per feature instead of one per task
-- Append `MILESTONE_COMPLETE` to SESSION.log with milestone totals and commit count
-- **Codex Milestone Review (if available):** Run `Skill(skill="codex:review", args="--wait --base <milestone_base_ref>")` on milestone changes. Critical findings → implementer fixes before next milestone. Others → logged as `CODEX_REVIEW`.
+- Append `MILESTONE_COMPLETE` event to events.jsonl with milestone totals and commit count
+- **Codex Milestone Review (if available):** Run `Skill(skill="codex:review", args="--wait --base <milestone_base_ref>")` on milestone changes. Critical findings → implementer fixes before next milestone. Others → logged as `CODEX_REVIEW` event.
 
 **Mid-batch stop conditions**: missing dependencies, systemic test failures,
 unclear instructions, repeated verification failures,
@@ -418,14 +515,14 @@ classify the deviation by severity and handle accordingly:
 | Severity | Detection | Handling |
 |----------|-----------|---------|
 | **Minor** — wrong assumption, step needs adjusting, small addition | Implementer says "this won't work because..." or "this already exists" or reviewer flags plan misalignment as justified | **Interactive**: propose specific PLAN.md edit, show before/after, ask user approval via `AskUserQuestion` before writing. **Autonomous**: log rationale in Decisions Made, apply edit, continue. |
-| **Major** — wrong approach, missing phase, scope change, fundamental rethink | Implementer reports approach is infeasible, or discovery invalidates multiple downstream tasks | **Both modes**: stop the current batch, log with evidence in SESSION.log (`DEVIATION_MAJOR`), present the issue to the user. Recommend re-planning (return to PLAN_DRAFT). |
+| **Major** — wrong approach, missing phase, scope change, fundamental rethink | Implementer reports approach is infeasible, or discovery invalidates multiple downstream tasks | **Both modes**: stop the current batch, append a `DEVIATION_MAJOR` event to events.jsonl with evidence, present the issue to the user. Recommend re-planning (return to PLAN_DRAFT). |
 
 **Plan Amendment Protocol** (applies to both severity levels):
 
-Deviations that change assumptions feed back into PLAN.md — not just into SESSION.log.
+Deviations that change assumptions feed back into PLAN.md — not just into events.jsonl.
 A resuming agent reads the current plan, not the original plan plus unstructured deviation logs.
 
-1. Log the deviation in SESSION.log (existing format)
+1. Append a `DEVIATION_MINOR` or `DEVIATION_MAJOR` event to events.jsonl with trigger, evidence, and affected tasks
 2. Update affected task contracts in PLAN.md:
    - Modify preconditions/postconditions of the affected task
    - Re-validate downstream task preconditions — if a downstream task assumed what changed, update its contract too
@@ -434,7 +531,7 @@ A resuming agent reads the current plan, not the original plan plus unstructured
 4. Regenerate SNAPSHOT.md to reflect the amended plan
 
 After resolving a deviation, re-read the latest PLAN.md before resuming — it may have changed.
-Log all deviations in SESSION.log and in the Surprises and Discoveries section of FEATURE.md.
+Log all deviations as events in events.jsonl and in the Surprises and Discoveries section of FEATURE.md.
 
 **TDD-first execution for behavior-changing tasks:**
 When a task introduces or changes behavior, follow this exact sequence — no exceptions:
@@ -467,7 +564,8 @@ Compare plan vs reality:
 | Scope drift | Count of tasks marked "Extra" in spec reviews | >2 per milestone | Log DEVIATION_MINOR |
 | New public APIs | Grep for exported functions not in plan | Any unplanned | Log for review |
 
-Log: `[<timestamp>] DRIFT_CHECK: M-XXX | planned_files: N | actual_files: N | unplanned: N (<list>) | test_ratio: N`
+Log as event:
+`{"ts":"<ISO8601>","type":"DRIFT_CHECK","actor":"orchestrator","milestone":"M-XXX","planned_files":N,"actual_files":N,"unplanned":[...],"test_ratio":N}`
 
 **Never:**
 - Dispatch multiple implementer subagents in parallel (causes conflicts)
@@ -491,6 +589,66 @@ Finalization sequence — each step depends on the previous one succeeding.
 
 ### 1. Outcomes & Retrospective
 - Write Outcomes & Retrospective to FEATURE.md
+
+### 1.3 Discovered Task Triage
+
+Every `tasks/T-DISC-*.md` bundle that is still `status: discovered` MUST be dispositioned
+before the feature closes. Discovery without disposition re-introduces the work-disavowal
+failure mode that Milestone 1 was built to prevent.
+
+1. Enumerate pending bundles:
+   `Grep(pattern="^status: discovered$", path="tasks/", output_mode="files_with_matches")`
+2. For each bundle, read frontmatter + body and present a triage prompt.
+
+**Interactive mode** — one `AskUserQuestion` per bundle:
+
+```
+AskUserQuestion(
+  header: "Triage T-DISC-<NNN>",
+  question: "<one-line summary from bundle> (discovered from <T-XXX>, risk: <level>). Disposition?",
+  options: [
+    "File as external issue" -- Create GitHub issue via gh, record URL, set status: skipped,
+    "Keep as backlog" -- Leave status: discovered for a future /do session to pick up,
+    "Discard with rationale" -- Not a real defect; capture why and set status: skipped
+  ]
+)
+```
+
+Bundle updates per choice:
+
+| Choice | Bundle frontmatter update | Body update |
+|-|-|-|
+| File as external issue | `status: skipped`, `external_issue: <URL>` | Append "Filed as <URL> on <ISO ts>" |
+| Keep as backlog | no change (`status: discovered`) | none |
+| Discard with rationale | `status: skipped`, `discard_reason: <one-liner>` | Append the full rationale |
+
+For "File as external issue":
+
+```bash
+gh issue create --title "<bundle summary>" --body "Discovered during /do <feature-name>. See T-DISC-<NNN> body for diagnosis.
+
+<bundle body contents>
+
+Originating feature: <short-name>
+Originating task: <discovered_from>"
+```
+
+Record the returned URL in the bundle frontmatter.
+
+**Autonomous mode:** Default all pending bundles to "Keep as backlog" (no destructive action
+without user consent). Surface the count in the completion report so the user can triage later.
+
+3. Update FEATURE.md Progress section for every dispositioned bundle (see state-file-schema.md
+   Progress conventions for the marker symbols).
+4. Append one `TRIAGE_COMPLETE` event to events.jsonl summarizing the dispositions:
+
+```json
+{"ts":"<ISO8601>","type":"TRIAGE_COMPLETE","actor":"orchestrator","counts":{"filed":N,"backlog":N,"discarded":N}}
+```
+
+**If a bundle's rightful home is the current feature (not a follow-up),** the correct path is
+*not* to fold it in during DONE. Answer "Keep as backlog", finish DONE, then start a fresh
+`/do` invocation that resumes the bundle — this preserves the one-feature-one-PR boundary.
 
 ### 1.5 Documentation Update (Optional)
 
@@ -539,7 +697,7 @@ Skip if the feature is purely internal (no user-facing changes).
 - Archive run state (mark `current_phase: DONE` in FEATURE.md)
 
 ### 7.5. Extract Session Learnings
-- Dispatch `memory-extractor` (haiku) with SESSION.log + Decisions Made + Surprises sections
+- Dispatch `memory-extractor` (haiku) with events.jsonl + Decisions Made + Surprises sections
 - Extracts reusable learnings (conventions, corrections, gotchas) into knowledge files
 - Runs after archival — cheap post-session knowledge capture
 - Dispatch with `run_in_background: true` — this is a non-blocking post-session task that should not delay completion reporting

@@ -13,11 +13,12 @@ Reference for the /do skill's state file format. Load when creating or parsing s
   REVIEW.md               # Review feedback (written after PLAN_REVIEW)
   VALIDATION.md           # Validation results with evidence (written after VALIDATE)
   SNAPSHOT.md             # Task-scoped resume context (regenerated at phase/milestone transitions)
-  SESSION.log             # Append-only activity log (written from EXECUTE onward)
+  events.jsonl            # Append-only, one JSON object per line (written from EXECUTE onward)
   HANDOFF.md              # Workspace handoff (written in DONE phase for workspace mode, optional)
   tasks/                  # Pre-computed task execution bundles (written after PLAN_REVIEW)
     TASK-001.md           # Self-contained bundle for T-001
     TASK-002.md           # Self-contained bundle for T-002
+    TASK-042.md           # Discovered during work (discovered_from: T-002)
     ...
 ```
 
@@ -66,6 +67,16 @@ last_plan_amendment: null  # ISO timestamp of most recent PLAN.md amendment (nul
 
 ## Progress
 
+**Marker legend:**
+
+| Marker | Meaning |
+|-|-|
+| `[x]` | Complete |
+| `[ ]` | Pending (planned, not started) |
+| `[~]` | Discovered mid-flight — bundle filed, awaiting DONE triage |
+| `[→]` | Discovered → filed externally (include issue URL) |
+| `[-]` | Discovered → discarded during triage (rationale in bundle body) |
+
 - [x] (2025-02-12 09:45Z) REFINE phase complete
 - [x] (2025-02-12 10:00Z) RESEARCH phase complete
 - [x] (2025-02-12 10:30Z) PLAN_DRAFT phase complete
@@ -73,6 +84,9 @@ last_plan_amendment: null  # ISO timestamp of most recent PLAN.md amendment (nul
 - [x] (2025-02-12 11:15Z) T-001: Set up project structure (commit abc123)
 - [ ] T-002: Implement core logic
 - [ ] T-003: Add tests
+- [~] T-DISC-001 (discovered from T-002) — Flaky login test exposes race in existing auth middleware
+- [→] T-DISC-002 (discovered from T-005) — Convention drift in error handling — https://github.com/org/repo/issues/142
+- [-] T-DISC-003 (discovered from T-007) — Stale TODO in legacy module — discarded (not a real defect)
 
 ## Surprises and Discoveries
 
@@ -236,82 +250,112 @@ These apply to ALL tasks regardless of what the plan says:
 2. <constraint from codebase analysis>
 ```
 
-## SESSION.log
+## events.jsonl
 
-Append-only activity log for transparency and debugging.
-The orchestrator appends entries after each significant action.
-Users can open this file in their editor to watch progress in real-time.
+Append-only activity log — one JSON object per line.
+The orchestrator and outer loop append events after each significant action.
+Users can tail the file in their editor to watch progress;
+`jq` queries give machine-readable filtering
+(e.g., `jq 'select(.type=="DISCOVERED")' events.jsonl`).
 
-```
---- SESSION START ---
-feature: <short-name>
-date: <ISO date>
-branch: <branch name>
-workdir: <workdir path>
-interaction_mode: <interactive|autonomous>
-codex_available: <true|false>
----
+**Common fields (every event):**
 
-[2025-02-12T09:45:00Z] PHASE_ENTER: EXECUTE
-[2025-02-12T09:45:05Z] PLAN_REVIEW: Pre-flight build OK (0 errors), test baseline 142 pass / 0 fail (12.3s)
-[2025-02-12T09:46:00Z] MILESTONE_START: M-001 (Core Authentication)
-[2025-02-12T09:46:30Z] TASK_START: T-001 (Set up project structure)
-[2025-02-12T09:48:00Z] TASK_COMPLETE: T-001 | tokens: 23.4k | duration: 90s | spec: COMPLIANT | quality: APPROVED
-[2025-02-12T09:48:30Z] TASK_START: T-002 (Implement login endpoint)
-[2025-02-12T09:51:00Z] TASK_COMPLETE: T-002 | tokens: 45.1k | duration: 150s | spec: ISSUES (1 fix cycle) | quality: APPROVED
-[2025-02-12T09:51:30Z] TASK_START: T-003 (Add JWT generation)
-[2025-02-12T09:53:00Z] TASK_COMPLETE: T-003 | tokens: 31.2k | duration: 90s | spec: COMPLIANT | quality: APPROVED
-[2025-02-12T09:53:05Z] BATCH_COMPLETE: T-001..T-003 | batch_tokens: 99.7k | batch_duration: 395s
-[2025-02-12T09:53:10Z] MILESTONE_COMPLETE: M-001 | milestone_tokens: 99.7k | milestone_duration: 395s | commits: 3
-[2025-02-12T09:53:30Z] MILESTONE_START: M-002 (Protected Routes) [parallel with M-003]
-[2025-02-12T09:53:30Z] MILESTONE_START: M-003 (Rate Limiting) [parallel with M-002]
-[2025-02-12T09:55:00Z] TASK_COMPLETE: T-004 (M-002) | tokens: 28.3k | duration: 88s | spec: COMPLIANT | quality: APPROVED
-[2025-02-12T09:55:00Z] TASK_COMPLETE: T-006 (M-003) | tokens: 22.1k | duration: 85s | spec: COMPLIANT | quality: APPROVED
-[2025-02-12T09:57:00Z] DEVIATION_MINOR: M-003/T-007 — rate limiter needs Redis, plan assumed in-memory. Adjusted approach.
-[2025-02-12T10:02:00Z] PHASE_ENTER: VALIDATE
-[2025-02-12T10:05:00Z] PHASE_ENTER: DONE
-[2025-02-12T10:05:30Z] SESSION_COMPLETE | total_tokens: 289.4k | total_duration: 1230s | commits: 8 | milestones: 3/3
-```
+| Field | Type | Description |
+|-|-|-|
+| `ts` | string (ISO-8601 UTC) | Event timestamp |
+| `type` | string | Event type (see table below) |
+| `actor` | string | Who emitted it (see actor values below) |
 
-Entry types:
+**Actor values:**
 
-| Entry | When |
-|-------|------|
-| `PHASE_ENTER` | Entering a new phase |
-| `PLAN_REVIEW` | Pre-flight check results |
-| `MILESTONE_START` | Starting a milestone (notes parallel milestones if applicable) |
-| `MILESTONE_COMPLETE` | All tasks in milestone done + committed |
-| `TASK_START` | Dispatching implementer for a task |
-| `TASK_COMPLETE` | Task passes both reviews (includes token/duration/review outcomes) |
-| `BATCH_COMPLETE` | Batch boundary reached (includes batch totals) |
-| `DEVIATION_MINOR` | Plan adjustment needed (logged with description) |
-| `DEVIATION_MAJOR` | Fundamental plan change — execution paused |
-| `PREFLIGHT` | Pre-flight validation gate results (build, tests, lint, typecheck baselines) |
-| `DRIFT_CHECK` | Milestone boundary drift measurement (planned vs actual files, test ratio, scope) |
-| `STAGNATION` | Fix cycle max reached — classification and recovery action taken |
-| `EVOLUTIONARY_LOOP` | Acceptance criteria found to be wrong — looping back to REFINE with evidence |
-| `CODEX_DETECTION` | Codex CLI availability check at EXECUTE setup (available/unavailable) |
-| `CODEX_REVIEW` | Codex code review at milestone boundary (verdict + findings count) |
-| `CODEX_ADVERSARIAL` | Codex adversarial review at validation (verdict + findings count) |
-| `CODEX_RESCUE` | Codex rescue for stagnation recovery (outcome: fixed/failed) |
-| `CODEX_SKIPPED` | Codex step skipped because CLI unavailable |
-| `CODEX_FAILED` | Codex invocation failed at runtime (reason logged) |
-| `SESSION_COMPLETE` | All phases done (includes grand totals) |
+| Actor | Who |
+|-|-|
+| `skill-md` | The outer SKILL.md loop |
+| `orchestrator` | Phase or milestone orchestrator |
+| `implementer` | Implementer agent |
+| `task-critic` | Task-critic agent |
+| `red-teamer` | Red-teamer agent |
+| `reviewer` | Plan reviewer |
+| `refiner` / `researcher` / `explorer` / `planner` / `validator` | Corresponding agents |
+| `codex` | Codex integrations |
+| `user` | Human-triggered event (approve, stop, accept-residual-risk) |
 
-Example entries for advanced entry types:
+**Example stream:**
 
-```
-[2025-02-12T10:00:00Z] DRIFT_CHECK: M-001 | planned_files: 5 | actual_files: 7 | unplanned: 2 (config.ts, utils.ts) | test_ratio: 0.4
-[2025-02-12T10:01:00Z] STAGNATION: T-003 | classification: complexity_underestimate | action: split_task
-[2025-02-12T10:02:00Z] EVOLUTIONARY_LOOP: criteria F2 wrong — spec says 404 but system correctly returns 204 for empty | action: loop_to_REFINE
-[2025-02-12T10:03:00Z] CODEX_DETECTION: available
-[2025-02-12T10:04:00Z] CODEX_REVIEW: M-001 | verdict: approve | findings: 0
-[2025-02-12T10:05:00Z] CODEX_ADVERSARIAL: verdict: needs-attention | findings: 2
-[2025-02-12T10:06:00Z] CODEX_RESCUE: T-003 | outcome: fixed
-[2025-02-12T10:07:00Z] CODEX_SKIPPED: plan_review
+```jsonl
+{"ts":"2026-04-21T09:45:00Z","type":"SESSION_START","actor":"skill-md","feature":"user-auth","branch":"feature/user-auth","workdir":"/path/to/wt","interaction_mode":"interactive","codex_available":true}
+{"ts":"2026-04-21T09:45:02Z","type":"PHASE_ENTER","actor":"skill-md","phase":"EXECUTE"}
+{"ts":"2026-04-21T09:45:05Z","type":"PREFLIGHT","actor":"orchestrator","build":"ok","tests":"142 pass / 0 fail","duration_ms":12300}
+{"ts":"2026-04-21T09:46:00Z","type":"MILESTONE_START","actor":"orchestrator","milestone":"M-001","title":"Core Authentication"}
+{"ts":"2026-04-21T09:46:30Z","type":"TASK_START","actor":"orchestrator","task":"T-001","title":"Set up project structure"}
+{"ts":"2026-04-21T09:48:00Z","type":"TASK_COMPLETE","actor":"orchestrator","task":"T-001","tokens":23400,"duration_ms":90000,"spec":"COMPLIANT","quality":"APPROVED","adversarial_rounds":1,"verdict":"ACCEPT","red_team":"SKIPPED","cost_usd":0.35}
+{"ts":"2026-04-21T09:51:00Z","type":"TASK_COMPLETE","actor":"orchestrator","task":"T-002","tokens":45100,"duration_ms":150000,"spec":"ISSUES","quality":"APPROVED","adversarial_rounds":2,"verdict":"ACCEPT","red_team":"SKIPPED","cost_usd":0.68}
+{"ts":"2026-04-21T09:51:30Z","type":"DISCOVERED","actor":"orchestrator","from_task":"T-002","discovered":"T-042","summary":"Flaky login test exposes race in existing auth middleware","risk":"Medium"}
+{"ts":"2026-04-21T09:53:10Z","type":"MILESTONE_COMPLETE","actor":"orchestrator","milestone":"M-001","tokens":99700,"duration_ms":395000,"commits":3}
+{"ts":"2026-04-21T09:57:00Z","type":"DEVIATION_MINOR","actor":"implementer","task":"T-007","summary":"Rate limiter needs Redis, plan assumed in-memory","amendment":"A1"}
+{"ts":"2026-04-21T10:02:00Z","type":"PHASE_ENTER","actor":"skill-md","phase":"VALIDATE"}
+{"ts":"2026-04-21T10:05:30Z","type":"SESSION_COMPLETE","actor":"skill-md","total_tokens":289400,"total_duration_ms":1230000,"commits":8,"milestones_completed":3,"milestones_total":3,"cost_usd":4.34}
 ```
 
-Token and duration values are per-agent cumulative (implementer + spec reviewer + code quality reviewer summed for each task).
+**Event types:**
+
+| Type | Common extra fields | When |
+|-|-|-|
+| `SESSION_START` | `feature`, `branch`, `workdir`, `interaction_mode`, `codex_available` | First event; opened on EXECUTE entry |
+| `SESSION_COMPLETE` | `total_tokens`, `total_duration_ms`, `commits`, `milestones_completed`, `cost_usd` | All phases done |
+| `PHASE_ENTER` | `phase` | Entering a new phase |
+| `PREFLIGHT` | `build`, `tests`, `lint`, `typecheck`, `duration_ms` | Pre-flight gate results |
+| `MILESTONE_START` | `milestone`, `title`, `parallel_with` (optional) | Starting a milestone |
+| `MILESTONE_COMPLETE` | `milestone`, `tokens`, `duration_ms`, `commits` | All tasks done + committed |
+| `TASK_START` | `task`, `title` | Dispatching implementer |
+| `TASK_COMPLETE` | `task`, `tokens`, `duration_ms`, `spec`, `quality`, `adversarial_rounds`, `verdict`, `red_team`, `cost_usd` | Task passed reviews (`verdict` is `ACCEPT` or `ACCEPT_WITH_CAVEATS`) |
+| `BATCH_COMPLETE` | `tasks` (list), `tokens`, `duration_ms` | Batch boundary reached |
+| `DISCOVERED` | `from_task`, `discovered`, `summary`, `risk` | Out-of-scope issue captured as new bundle |
+| `TRIAGE_COMPLETE` | `counts` object (`filed`, `backlog`, `discarded`) | DONE-phase triage finished for all pending T-DISC-* bundles |
+| `DEVIATION_MINOR` | `task`, `summary`, `amendment` (ID) | Plan adjustment applied |
+| `DEVIATION_MAJOR` | `task`, `summary` | Plan invalidation; batch paused |
+| `DRIFT_CHECK` | `milestone`, `planned_files`, `actual_files`, `unplanned`, `test_ratio` | Milestone boundary drift measurement |
+| `STAGNATION` | `task`, `classification`, `adversarial_rounds`, `action` | Fix-cycle max reached |
+| `SAFETY_VALVE_BLOCKED` | `task`, `unresolved_flaws` | Adversarial budget exhausted; awaiting user |
+| `EVOLUTIONARY_LOOP` | `criterion`, `evidence`, `action` | Acceptance criterion proven wrong — loop to REFINE |
+| `CODEX_DETECTION` | `available` | Codex CLI availability check |
+| `CODEX_REVIEW` | `milestone`, `verdict`, `findings` | Codex milestone review |
+| `CODEX_ADVERSARIAL` | `verdict`, `findings` | Codex adversarial gate |
+| `CODEX_RESCUE` | `task`, `outcome` | Codex rescue for stagnation |
+| `CODEX_SKIPPED` | `step` | Codex step skipped (CLI unavailable) |
+| `CODEX_FAILED` | `step`, `reason` | Codex invocation failed |
+| `BUDGET_WARNING` | `spent_usd`, `budget_usd`, `percent` | ≥80% of budget consumed |
+| `BUDGET_EXHAUSTED` | `spent_usd`, `budget_usd` | 100% reached; stopping or pausing |
+
+Token and duration values are cumulative per agent bundle
+(implementer + task-critic + any red-team / codex invocations summed for each task).
+
+**Append rules:**
+
+- One event per line, no pretty-printing, no trailing comma, no multi-line JSON.
+- Never rewrite or truncate `events.jsonl` — append only.
+- Every event MUST include `ts`, `type`, `actor`.
+- Unknown extra fields are allowed; downstream readers ignore what they do not recognize.
+
+**Query recipes (`jq`):**
+
+Copy-paste-ready one-liners for operating on a session's `events.jsonl`.
+
+| What | Command |
+|-|-|
+| Total cost so far (USD) | `jq -s 'map(.cost_usd // 0) \| add' events.jsonl` |
+| Total tokens | `jq -s 'map(.tokens // .total_tokens // 0) \| add' events.jsonl` |
+| Last event (cold-resume pointer) | `tail -1 events.jsonl \| jq .` |
+| All discovered bundles with origin | `jq 'select(.type=="DISCOVERED") \| {from:.from_task,id:.discovered,risk,summary}' events.jsonl` |
+| Failed / blocked tasks | `jq 'select(.type=="SAFETY_VALVE_BLOCKED" or .type=="STAGNATION")' events.jsonl` |
+| Deviations grouped by severity | `jq -s 'map(select(.type \| startswith("DEVIATION_"))) \| group_by(.type) \| map({type:.[0].type,count:length})' events.jsonl` |
+| Milestone elapsed time (ms) | `jq 'select(.type=="MILESTONE_COMPLETE") \| {milestone,duration_ms,commits}' events.jsonl` |
+| Budget burn rate (% spent over time) | `jq 'select(.type=="TASK_COMPLETE") \| {ts,cost_usd}' events.jsonl \| jq -s 'reduce .[] as $e (0; . + $e.cost_usd)'` |
+| Count discoveries still untriaged | `jq -s 'map(select(.type=="DISCOVERED")) \| length' events.jsonl` (cross-check against `Grep(pattern="^status: discovered$", path="tasks/")`) |
+| Adversarial rounds histogram | `jq -s 'map(select(.type=="TASK_COMPLETE") \| .adversarial_rounds) \| group_by(.) \| map({rounds:.[0],count:length})' events.jsonl` |
+
+Use `-s` (slurp) when aggregating across events; omit for per-line filtering.
+Chain with standard shell tools (`head`, `tail`, `wc -l`) for further shaping.
 
 ## PLAN.md
 
@@ -484,13 +528,16 @@ an implementer reading only this file should have everything needed to execute t
 ---
 task_id: T-001
 milestone: M-001
-status: pending          # pending | in_progress | complete | blocked | skipped
+status: pending          # pending | ready | in_progress | complete | blocked | skipped | discovered
 risk: Low                # Low | Medium | High
 max_adversarial_rounds: 1  # Derived from risk: Low=1, Medium=2, High=3
 depends_on: []           # Task IDs that must complete before this task
+discovered_from: null    # T-XXX, or phase name (RESEARCH | PLAN_DRAFT | PLAN_REVIEW | VALIDATE) when filed outside EXECUTE; null for planned tasks
 adversarial_rounds: 0    # Updated during execution
 verdict: null            # null | ACCEPT | ACCEPT_WITH_CAVEATS | BLOCKED
 commit_sha: null         # Set at milestone boundary after /atcommit
+token_cost_usd: null     # Running cost for this bundle's executions (null until TASK_COMPLETE)
+duration_ms: null        # Cumulative execution time (null until TASK_COMPLETE)
 ---
 
 # Task: T-001 — <short description>
@@ -577,17 +624,25 @@ Check these before starting — if any fail, the task is blocked:
 ```
 
 **Bundle lifecycle:**
-1. **Created** by the bundle generator after PLAN_REVIEW approval
-2. **Read** by the milestone orchestrator when dispatching the implementer
-3. **Updated** by the milestone orchestrator after each adversarial round (status, adversarial_rounds, verdict)
-4. **Finalized** at milestone boundary (commit_sha set after /atcommit)
-5. **Read by outer loop** for resume (find first pending task) and progress tracking
+1. **Created** by the bundle generator after PLAN_REVIEW approval (`status: pending`)
+   or by the orchestrator mid-EXECUTE as a discovered task (`status: discovered`, `discovered_from: T-XXX`)
+2. **Promoted** to `status: ready` by the orchestrator when all `depends_on` tasks reach `status: complete`
+   (queryable via `Grep(pattern="^status: ready$", path="tasks/")`)
+3. **Read** by the milestone orchestrator when dispatching the implementer (`status: ready → in_progress`)
+4. **Updated** after each adversarial round (status, adversarial_rounds, verdict)
+5. **Finalized** at milestone boundary (status: complete, commit_sha, token_cost_usd, duration_ms)
+6. **Read by outer loop** for resume (find first `ready` task) and progress tracking
+
+**Discovered tasks:** carry `status: discovered` until the user decides their fate
+at the DONE phase (fold into this feature, file externally, or defer).
+They are never auto-promoted to `ready` — discovery without disposition is intentional,
+the point is to capture the work structurally, not to quietly expand scope.
 
 ## SNAPSHOT.md (Resume Context)
 
 Auto-generated at every phase transition and milestone completion.
 Gives a cold-start agent everything it needs to pick up the next task
-without reading RESEARCH.md, PLAN.md, or SESSION.log from scratch.
+without reading RESEARCH.md, PLAN.md, or events.jsonl from scratch.
 
 The snapshot is **task-scoped** — it answers "what does the next agent need to know
 to do this specific task?" rather than summarizing the entire project.
@@ -650,6 +705,20 @@ From CONVENTIONS.md (immutable for this feature):
 ## Plan Amendments
 
 - (none)
+
+## Discovered Tasks (Pending Triage)
+
+Bundles with `status: discovered` surfaced during earlier phases.
+A resuming agent must see these before starting the next task —
+they may change priorities or reveal blockers.
+
+| ID | From | By | Risk | Summary |
+|-|-|-|-|-|
+| T-DISC-001 | T-002 | implementer | Medium | Flaky login test exposes race in existing auth middleware |
+| T-DISC-002 | RESEARCH | explorer | Low | CONVENTIONS.md error pattern conflicts with actual code in pkg/api |
+
+Leave the table header with "(none)" when no discovered bundles exist.
+Triage happens at DONE (see phase-flow.md DONE step 1.3).
 
 ## Budget Status
 

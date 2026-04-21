@@ -87,7 +87,7 @@ For EXECUTE milestones with many tasks, context may still grow within a single d
 If context grows large within a milestone:
 1. Write current state to FEATURE.md (Decisions Made, Surprises, progress) and update task bundles
 2. The system's auto-compact will preserve essential context
-3. After compaction: re-read task bundles and SESSION.log tail to restore working context
+3. After compaction: re-read task bundles and the events.jsonl tail to restore working context
 
 State files are durable memory — even after compaction or crash,
 all progress is preserved on disk and recoverable by the outer loop.
@@ -166,7 +166,8 @@ Files for each phase:
 | `PLAN.md` | PLAN_DRAFT phase | Milestones, tasks, validation strategy |
 | `REVIEW.md` | PLAN_REVIEW phase | Review feedback, required changes |
 | `VALIDATION.md` | VALIDATE phase | Test results, acceptance evidence |
-| `SESSION.log` | EXECUTE entry | Append-only activity log with token/timing metrics |
+| `events.jsonl` | EXECUTE entry | Append-only JSONL event stream (one JSON object per line) with actor, token, and timing metrics |
+| `tasks/T-XXX.md` | BUNDLE_GENERATION | Task bundles (frontmatter + contract) with status, `discovered_from`, `token_cost_usd`, `duration_ms` |
 
 **Update protocol:**
 - All state writes go to `~/docs/plans/do/<short-name>/` — the directory containing the FEATURE.md from your dispatch prompt
@@ -563,21 +564,27 @@ Skip for Low and Medium risk tasks. Dispatch `productivity:red-teamer`:
 **Step 5: Update State and Log**
 
 After adversarial loop ACCEPTs and red-team passes (or is skipped):
-- Update task bundle frontmatter: `status: complete`, `verdict: ACCEPT`, `adversarial_rounds: <N>`
+- Before marking complete, run the **Discovery Capture Protocol** (see phase-flow.md):
+  for each out-of-scope failure or latent issue surfaced, file a `tasks/T-DISC-<NNN>.md` bundle
+  with `status: discovered`, `discovered_from: <current T-XXX>`, and append a `DISCOVERED` event.
+  Never delete, disable, or comment out failing tests to stay green — file a bundle instead.
+- Update task bundle frontmatter: `status: complete`, `verdict: ACCEPT`, `adversarial_rounds: <N>`,
+  `token_cost_usd: <N>`, `duration_ms: <N>`
 - Mark task `[x]` with timestamp in FEATURE.md Progress section
 - Record review findings in Surprises and Discoveries
 - Update FEATURE.md state file
-- Append to SESSION.log: `[<timestamp>] TASK_COMPLETE: T-XXX | tokens: <N>k | duration: <N>s | adversarial_rounds: <N> | verdict: ACCEPT | red-team: <PASS|ISSUES|SKIPPED>`
+- Append to events.jsonl:
+  `{"ts":"<ISO8601>","type":"TASK_COMPLETE","actor":"orchestrator","task_id":"T-XXX","tokens":<N>,"duration_ms":<N>,"cost_usd":<N>,"adversarial_rounds":<N>,"verdict":"ACCEPT","red_team":"<PASS|ISSUES|SKIPPED>"}`
 
 **TASK_COMPLETE is only emitted for tasks that received ACCEPT from the task-critic.**
-Tasks that hit the safety valve are logged as `SAFETY_VALVE_BLOCKED` and do NOT get TASK_COMPLETE
+Tasks that hit the safety valve are logged as a `SAFETY_VALVE_BLOCKED` event and do NOT get TASK_COMPLETE
 until the user explicitly resolves them (see Safety Valve section above).
-If the user chooses "Accept residual risk," emit:
-`[<timestamp>] TASK_COMPLETE: T-XXX | ... | verdict: ACCEPT_WITH_CAVEATS | caveats: <list of unresolved flaws>`
+If the user chooses "Accept residual risk," emit TASK_COMPLETE with `"verdict":"ACCEPT_WITH_CAVEATS"` and a `caveats` array.
 
 At **milestone boundary** (all tasks complete + tests pass):
 - Run `/atcommit` to organize accumulated changes into atomic commits
-- Append: `[<timestamp>] MILESTONE_COMPLETE: M-XXX | milestone_tokens: <N>k | milestone_duration: <N>s | commits: <N>`
+- Append to events.jsonl:
+  `{"ts":"<ISO8601>","type":"MILESTONE_COMPLETE","actor":"orchestrator","milestone":"M-XXX","tokens":<N>,"duration_ms":<N>,"commits":<N>}`
 
 **Codex Milestone Review (if codex available):**
 
@@ -588,17 +595,22 @@ Skill(skill="codex:review", args="--wait --base <previous_milestone_commit_or_ba
 ```
 
 If Codex `needs-attention` with Critical findings: dispatch implementer to fix before proceeding to next milestone.
-Other findings: log in SESSION.log as `CODEX_REVIEW: M-XXX | verdict: <approve|needs-attention> | findings: N`.
-If Codex invocation fails: log `CODEX_FAILED: milestone_review`, continue.
+Other findings: append a `CODEX_REVIEW` event to events.jsonl:
+`{"ts":"<ISO8601>","type":"CODEX_REVIEW","actor":"codex","milestone":"M-XXX","verdict":"<approve|needs-attention>","findings":N}`.
+If Codex invocation fails: append `{"type":"CODEX_FAILED","actor":"codex","scope":"milestone_review"}`, continue.
 
 **Drift Measurement** (deterministic — at each milestone boundary after committing):
 Compare File Impact Map vs `git diff --name-only <base_ref>..HEAD`. Flag >20% unplanned files, unplanned public APIs, or test ratio <0.3.
 
 **Batch Report** (after every batch or parallel round):
-Report completed tasks, test status, resource usage, discoveries, milestone status, and next round.
 
-**Interactive mode:** Output full batch report, then ask: continue / adjust / review code / stop here.
-**Autonomous mode:** Output brief milestone progress line at each MILESTONE_COMPLETE. Log batch summary and continue. Stop only on blockers or test failures.
+Required fields in every report: tasks completed, test status, discovered bundles this batch,
+tokens, cost (USD), duration. See the Batch reporting section in phase-flow.md for the exact
+autonomous one-line format and interactive structured block (Discovered field is mandatory —
+print `Discovered: 0` / `Discovered this batch: none` when nothing was filed).
+
+**Interactive mode:** Output the structured block, then ask: continue / adjust / review code / stop here.
+**Autonomous mode:** Emit the one-line format at each MILESTONE_COMPLETE. Log batch summary and continue. Stop only on blockers or test failures.
 
 **Token Budget Enforcement:**
 
@@ -632,7 +644,7 @@ Summary:
 
 **Exit criteria:** All tasks in this milestone complete, no known failing checks
 
-**Completion:** Update FEATURE.md Progress section with completed tasks and commit SHAs. Update task bundle frontmatter (status, verdict, adversarial_rounds, commit_sha). Append MILESTONE_COMPLETE to SESSION.log. Return completion report with milestone summary. The outer loop dispatches the next milestone or advances to VALIDATE.
+**Completion:** Update FEATURE.md Progress section with completed tasks and commit SHAs. Update task bundle frontmatter (status, verdict, adversarial_rounds, commit_sha, token_cost_usd, duration_ms). Append a MILESTONE_COMPLETE event to events.jsonl. Return completion report with milestone summary. The outer loop dispatches the next milestone or advances to VALIDATE.
 
 ### VALIDATE Phase
 
@@ -689,6 +701,13 @@ Summary:
 **Actions:**
 
 1. Write Outcomes and Retrospective section in state file
+1b. **Discovered Task Triage** — enumerate `tasks/T-DISC-*.md` bundles with `status: discovered`
+    (`Grep(pattern="^status: discovered$", path="tasks/")`). For each bundle, present a disposition
+    prompt per **Discovered Task Triage** protocol in phase-flow.md (file as external issue, keep
+    as backlog, or discard with rationale). Update bundle frontmatter and FEATURE.md Progress
+    markers, then append one `TRIAGE_COMPLETE` event to events.jsonl with per-disposition counts.
+    Autonomous mode defaults all pending bundles to "keep as backlog" and surfaces the count
+    in the completion report.
 2. Run full test suite one final time to confirm everything passes
 3. Present structured completion options:
 
@@ -706,7 +725,8 @@ Summary:
 | **Discard** | Require typed confirmation "discard". Then `git worktree remove`, `git branch -D`. |
 
 5. Update state with outcome (PR URL, merge commit, or discard note)
-6. Append to SESSION.log: `[<timestamp>] SESSION_COMPLETE | total_tokens: <N>k | total_duration: <N>s | commits: <N> | milestones: <completed>/<total>`
+6. Append to events.jsonl:
+   `{"ts":"<ISO8601>","type":"SESSION_COMPLETE","actor":"orchestrator","total_tokens":<N>,"total_duration_ms":<N>,"total_cost_usd":<N>,"commits":<N>,"milestones_completed":<N>,"milestones_total":<N>}`
 7. Archive state (move to `runs/completed/`)
 
 **PR Title Guidelines:** Under 70 characters, imperative mood, include scope if relevant.
@@ -718,7 +738,7 @@ For features with >= 3 milestones or any high-risk tasks, write `HANDOFF.md` in 
 ### Extract Session Learnings
 
 Dispatch `productivity:memory-extractor` (haiku) with `run_in_background: true`:
-- Input: SESSION.log + Decisions Made + Surprises sections from FEATURE.md
+- Input: events.jsonl + Decisions Made + Surprises sections from FEATURE.md
 - Focus: conventions discovered, corrections, patterns, gotchas
 - Dispatch with `run_in_background: true` — this is a non-blocking post-session task
 

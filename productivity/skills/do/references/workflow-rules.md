@@ -72,10 +72,10 @@ The budget check runs **before** dispatching — not after. Autonomous mode does
 ## Plan Amendment Protocol
 
 When a deviation changes the plan's assumptions during EXECUTE,
-the plan itself must be updated — not just the SESSION.log.
+the plan itself must be updated — not just events.jsonl.
 A resuming agent reads the current plan, not the original plan plus unstructured deviation logs.
 
-1. Log the deviation in SESSION.log (existing entry type)
+1. Append a `DEVIATION_MINOR` or `DEVIATION_MAJOR` event to events.jsonl
 2. Update affected task contracts in PLAN.md:
    - Modify preconditions/postconditions of the affected task
    - Re-validate downstream task preconditions — if a downstream task assumed what changed, update its contract
