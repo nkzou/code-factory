@@ -112,6 +112,15 @@ For each piece of content:
 mkdir -p ~/docs/drafts
 ```
 
+**Prose rules for every draft** (Reddit, blog, announcement, tutorial):
+
+- Banned vocabulary: delve, crucial, pivotal, robust, seamless, leverage, tapestry, multifaceted, nuanced, comprehensive, streamline, empower, best-in-class, cutting-edge, "stands as a testament". Replace with the specific metric, tool, or action.
+- No em dashes (`—` or `---`) or en dashes (`–`). Use a period, colon, or `to` in ranges.
+- Straight quotes only. No curly quotes.
+- No rule-of-three padding. No trailing `-ing` clauses. No motivational transitions. No closing pep talks.
+- Smell tests on every paragraph: landing-page, read-aloud, signature.
+- Density rule: five AI-slop words in two paragraphs means rewrite the passage.
+
 Present suggestions:
 
 ```

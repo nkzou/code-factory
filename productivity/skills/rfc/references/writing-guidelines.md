@@ -117,11 +117,33 @@ These words and phrases signal AI-generated text. Replace them with specific, me
 | innovative / novel | Self-congratulatory | Describe what it does differently and why that matters |
 | optimize (without target) | Vague | "Reduce P99 latency from X to Y" |
 | empower / enable | Corporate filler | Describe the concrete capability added |
+| delve / delve into | AI tell; scholarly posturing | "covers", "examines", or just start the analysis |
+| crucial / pivotal | Unearned emphasis | State the impact directly or drop the adjective |
+| multifaceted / nuanced | Hedging dressed as depth | Name the specific facets or nuances |
+| tapestry / intricate tapestry | Purple prose | Delete. Describe the parts directly. |
+| stands as a testament | Vendor-page filler | State what the thing does and what it proves |
 
 Also avoid:
 - Motivational transitions: "This brings us to...", "It is worth noting that...", "Importantly, ..."
 - Thesis restatements: Do not repeat the problem statement in every section.
 - Hedging stacks: "It might potentially be possible to..." Pick a position.
+- Rule-of-three-every-time: Two examples are fine; four are fine. Do not pad lists to three for rhythm.
+- Trailing `-ing` clauses: "..., enabling teams to ship faster." End the sentence. Start a new one if needed.
+- Closing pep talks: No "In conclusion, this approach will transform..." sections.
+
+## Smell Tests
+
+Run all three on any passage that feels off.
+
+| Test | Question | Action |
+|------|----------|--------|
+| Landing-page test | Could this sentence appear verbatim on a vendor marketing page? | Rewrite with specifics. |
+| Read-aloud test | Read the paragraph out loud. Does it make you cringe, or sound like ad copy? | Rewrite in plainer language. |
+| Signature test | Would you defend every word as your own in a code review? | Remove or replace any word you would not. |
+
+## Density Rule
+
+One "crucial" in a 3-page RFC is fine. Five AI-slop words (banned list above) in two paragraphs means rewrite the whole passage, not just the individual words. The problem is the register, not the vocabulary.
 
 ## Typographic Rules
 
@@ -129,6 +151,7 @@ Also avoid:
 |------|--------|
 | No numbered headings | Do not prefix section titles with numbers (`1. Overview`, `2. Design`). Use plain titles. Numbers in headings are only acceptable when the heading describes a sequence where order matters (e.g., `Step 1: Validate`, migration phases). |
 | No em dashes | Do not use `---` or `—`. Rewrite the sentence, use a colon, semicolon, or split into two sentences. |
+| No en dashes | Do not use `–` anywhere, including number ranges. Use `to` (e.g., "10 to 20 req/s", not "10–20 req/s"). |
 | Straight quotes only | Use `"` and `'`. Do not use curly quotes like " " or ' '. |
 | No mid-sentence styling | Do not use `**bold**` or `*italic*` inside sentences. Use headings, lists, or code formatting instead. |
 
@@ -175,11 +198,14 @@ Before finalizing any RFC section, verify:
 - [ ] A reader unfamiliar with the domain can follow the argument
 - [ ] The document stays within length guidelines
 - [ ] No numbered headings (use `## Overview`, not `## 1. Overview`) unless heading describes an ordered sequence
-- [ ] No em dashes (`---` or `—`) anywhere in the document
+- [ ] No em dashes (`---` or `—`) or en dashes (`–`) anywhere in the document
 - [ ] Only straight quotes (`"` and `'`), no curly quotes
 - [ ] No bold or italic formatting inside sentences
 - [ ] No banned words from the Banned Language list
 - [ ] No motivational transitions or thesis restatements
+- [ ] No rule-of-three padding; no trailing `-ing` clauses; no closing pep talks
+- [ ] Passages survive the landing-page, read-aloud, and signature tests
+- [ ] Density rule respected: no more than one AI-slop word per two paragraphs
 - [ ] Sharp edges are present: what breaks first, what is annoying, what we are punting
 - [ ] Terminology is consistent throughout (same concept = same term)
 - [ ] Cost and capacity estimates included, with stated assumptions

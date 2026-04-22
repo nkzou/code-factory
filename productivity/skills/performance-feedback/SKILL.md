@@ -218,11 +218,18 @@ Each dimension should have **specific examples with dates and links** — not va
 **Writing guidelines:**
 
 - Lead with evidence, not opinion. "Merged 12 PRs including the auth refactor (DATA-4521)" not "did great work."
-- Use the [Situation → Behavior → Impact] pattern for specific examples.
-- Balance strengths and growth areas — pure praise is unhelpful.
+- Use the Situation, Behavior, Impact pattern for specific examples.
+- Balance strengths and growth areas. Pure praise is unhelpful.
 - Quote directly from 1:1 notes or daily logs where relevant (with dates).
 - Group related items into themes rather than listing chronologically.
 - If evidence is thin for a dimension, note it explicitly rather than speculating.
+- Follow the full prose rules in `references/prose-guardrails.md`:
+  - Banned vocabulary (delve, crucial, robust, seamless, leverage, comprehensive, empower, "stands as a testament", "strong communicator" without example, etc.).
+  - No em dashes or en dashes. No curly quotes. No mid-sentence styling.
+  - No rule-of-three padding, no trailing `-ing` clauses, no motivational transitions, no closing pep talks.
+  - Smell tests: landing-page, read-aloud, signature. Run all three on every paragraph.
+  - Density rule: five AI-slop words in two paragraphs means rewrite the passage.
+  - Signature test matters most here. The reviewee should hear the manager's voice, not an HR template.
 
 ## Step 6: Generate Output
 

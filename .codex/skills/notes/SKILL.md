@@ -224,10 +224,22 @@ This creates two-way links: notes mention people, People files link back to note
 
 ## Formatting Rules
 
-- **Bullet lists over prose** — use `-` bullets for all note content.
-- **Concise** — preserve information density, not narrative or filler.
+- Bullet lists over prose. Use `-` bullets for all note content where possible.
+- Concise. Preserve information density, not narrative or filler.
 - Keep frontmatter minimal and correct.
 - One blank line between sections, no extra blank lines between bullets.
+- No em dashes (`—` or `---`) or en dashes (`–`). Use a period, colon, or `to` in ranges.
+
+## Prose Guardrails
+
+When a note contains narrative prose (career plans, promotion proposals, overview sections, misc long-form notes), follow the rules in `references/prose-guardrails.md`:
+
+- Banned vocabulary (delve, crucial, robust, seamless, leverage, tapestry, multifaceted, etc.).
+- Smell tests: landing-page, read-aloud, signature.
+- Density rule: rewrite passages with five or more AI-slop words in two paragraphs.
+- No rule-of-three padding, no trailing `-ing` clauses, no motivational transitions.
+
+Bullet-only notes (1:1 logs, achievements, daily entries) can skip the guardrails but must still avoid em and en dashes.
 
 ## Error Handling
 

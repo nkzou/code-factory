@@ -311,7 +311,15 @@ If `~/google-drive/` doesn't exist, skip and warn.
 #### W3: Synthesize
 
 Organize by theme, not by day or source.
-Cross-reference daily notes with PR/ticket data — a daily note may add context to a PR title.
+Cross-reference daily notes with PR/ticket data. A daily note may add context to a PR title.
+
+**Prose rules for the synthesis bullets:**
+
+- Lead with the specific outcome. "Shipped DATA-4521, cut P99 from 1.2s to 200ms" not "made good progress on the migration".
+- Banned vocabulary: delve, crucial, pivotal, robust, seamless, leverage, comprehensive, streamline, empower, best-in-class. Use the metric, tool, or action instead.
+- No em dashes (`—` or `---`) or en dashes (`–`). Use a period or `to` in ranges.
+- No rule-of-three padding. No trailing `-ing` clauses. No motivational transitions. No closing pep talks.
+- If a week was quiet, reflect that. Do not pad.
 
 | Category | What to include |
 |----------|----------------|

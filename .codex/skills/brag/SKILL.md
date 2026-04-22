@@ -457,6 +457,15 @@ If there's already a backlink for the brag doc, update it rather than duplicatin
 4. Flag dimensions with weak evidence.
 5. Generate a draft summary suitable for a promotion packet or performance review.
 
+**Prose rules for the draft summary:**
+
+- Banned vocabulary: delve, crucial, pivotal, robust, seamless, leverage, tapestry, multifaceted, nuanced, comprehensive, streamline, empower, best-in-class, cutting-edge, "stands as a testament". Replace with the specific metric, tool, or outcome.
+- No em dashes (`—` or `---`) or en dashes (`–`). No curly quotes. No mid-sentence `**bold**` or `*italic*`.
+- Lead with evidence. "Shipped DATA-4521 by 2026-03-15, cutting P99 from 1.2s to 200ms" not "delivered impressive results".
+- No rule-of-three padding. No trailing `-ing` clauses. No motivational transitions. No closing pep talks.
+- Smell tests: landing-page, read-aloud, signature. If a sentence could appear on a vendor page, rewrite.
+- Signature test matters most. Would you defend every word in a promotion committee meeting?
+
 ## Error Handling
 
 | Error | Action |

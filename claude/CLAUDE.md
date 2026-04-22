@@ -41,9 +41,16 @@ Use Bash only when you need actual shell execution, such as running tests, git c
 When creating rfcs, documentation, commits, pull requests, or any external medium follow this writing rules:
 
 - Output everything in plain, copyable Markdown.
-- Do not use em dashes (`---` or `—`). Rewrite the sentence if needed.
+- Do not use em dashes (`---` or `—`) or en dashes (`–`). Rewrite the sentence, use a period, or use `to` in number ranges.
 - Use straight quotes only: `"` and `'`. Do not use curly quotes like `"` `"` or `'` `'`.
 - Avoid mid-sentence styling. Do not use `**bold**` or `*italic*` inside sentences. If emphasis is needed, rewrite the sentence or use headings, lists, or code formatting.
+- Kill AI-slop vocabulary. Banned: delve, crucial, pivotal, robust, seamless, seamlessly, leverage, tapestry, multifaceted, nuanced, comprehensive, streamline, empower, "stands as a testament", best-in-class, cutting-edge. Replace with the specific metric, tool, or action.
+- Read-aloud test. If a sentence sounds like a vendor landing page or makes you cringe, rewrite.
+- Signature test. If you would not defend every word as your own in a code review, rewrite.
+- Density rule. One "crucial" is fine. Five AI-slop words in two paragraphs means rewrite the whole passage.
+- No rule-of-three-every-time. Two examples are fine. Four are fine. Do not pad to three.
+- No trailing `-ing` clauses ("..., enabling teams to..."). End the sentence, start a new one.
+- No motivational transitions ("It is important to note that..."), no thesis restatements, no closing pep talks.
 
 ## Code
 
