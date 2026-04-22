@@ -1,7 +1,6 @@
 {
   "go": {
     "command": "gopls-rs",
-    "args": ["-remote=auto", "-remote.listen.timeout=30m"],
     "extensionToLanguage": { ".go": "go" }
   }
 }
