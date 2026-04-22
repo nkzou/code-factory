@@ -1,0 +1,9 @@
+{
+  "name": "gopls-daemon",
+  "version": "0.1.0",
+  "description": "Go language server using gopls-rs in shared daemon mode (-remote=auto). Replaces gopls-lsp@claude-plugins-official so a single daemon is reused across Claude Code sessions.",
+  "author": {
+    "name": "Rodrigo Fernandes",
+    "email": "rodrigo.fernandes@datadoghq.com"
+  }
+}
