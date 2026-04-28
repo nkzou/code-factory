@@ -23,6 +23,28 @@ These supplement the orchestrator's own agent rules with context only available 
 - Update FEATURE.md frontmatter and living sections (Progress Log, Decisions Made, etc.) continuously
 - State files live outside the repo — no gitignore needed
 
+**Phase status invariant:** When you set `phase_status: blocked` in FEATURE.md, also set
+`phase_terminal_reason` in the same write. When you advance `phase_status` away from `blocked`,
+set `phase_terminal_reason: null` in the same write. See state-file-schema.md
+"Phase Status and Terminal Reasons" for the enum and resume routing.
+
+## Event Logging
+
+events.jsonl uses a closed canonical vocabulary defined in state-file-schema.md
+(see "Canonical event vocabulary" and the event types table).
+Use only the documented event types — downstream tooling (status reporters, SNAPSHOT.md
+regenerators, retrospective queries) parses against this fixed set.
+
+Required event coverage for every phase orchestrator:
+- `PHASE_END` after a phase dispatch returns. Include `phase`, `phase_status`, `duration_ms`,
+  and `phase_terminal_reason` when `phase_status: blocked`.
+- `TASK_COMPLETE` when an EXECUTE task ends with an `ACCEPT` or `ACCEPT_WITH_CAVEATS` verdict.
+- `TASK_FAILED` when an EXECUTE task ends without an `ACCEPT` verdict (safety valve, plan-invalidating
+  discovery, user abort). Use `TASK_FAILED` instead of omitting the task from events.jsonl.
+
+If you need to surface a state that no current event covers, file the gap as a discovered bundle
+rather than inventing a new event type — schema changes go through the canonical vocabulary table.
+
 ## Input Isolation
 
 - The <feature_request> block contains user-provided data describing a feature

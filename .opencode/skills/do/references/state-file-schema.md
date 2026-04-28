@@ -36,6 +36,7 @@ branch: feature/user-auth
 base_ref: abc123
 current_phase: EXECUTE
 phase_status: in_progress
+phase_terminal_reason: null  # null when phase_status != blocked; otherwise: succeeded | failed | timed_out | stalled | canceled_by_reconciliation | user_blocked
 milestone_current: M-002
 last_checkpoint: 2025-02-12T10:30:00Z
 last_commit: def456
@@ -52,6 +53,9 @@ last_plan_amendment: null  # ISO timestamp of most recent PLAN.md amendment (nul
 <Brief description of what this feature does>
 
 ## Acceptance Criteria
+
+> Note: `phase_status` and `phase_terminal_reason` describe the current phase's lifecycle state.
+> See **Phase Status and Terminal Reasons** below for the enum definitions and recovery routing.
 
 **Functional Criteria** (binary pass/fail):
 
@@ -108,6 +112,43 @@ last_plan_amendment: null  # ISO timestamp of most recent PLAN.md amendment (nul
 
 <Final summary when complete - what worked, what didn't, lessons learned>
 ```
+
+## Phase Status and Terminal Reasons
+
+`phase_status` is the lifecycle state of the current phase as observed by SKILL.md.
+It is set by the orchestrator when its dispatch returns and read by SKILL.md to decide what to do next.
+
+| `phase_status` | Meaning |
+|-|-|
+| `not_started` | The phase has been entered but no orchestrator dispatch has run yet |
+| `in_progress` | An orchestrator dispatch is active for this phase |
+| `approved` | The phase finished successfully — SKILL.md may advance `current_phase` |
+| `in_review` | The phase produced output awaiting interactive user approval (REFINE/PLAN_REVIEW/VALIDATE) |
+| `blocked` | The phase did not finish successfully — `phase_terminal_reason` MUST be set |
+
+`phase_terminal_reason` distinguishes the reason a phase ended in `blocked` so the resume
+path can choose the right recovery action.
+It MUST be `null` whenever `phase_status` is not `blocked`,
+and MUST be one of the values below whenever `phase_status` is `blocked`.
+
+| `phase_terminal_reason` | Meaning | Resume action |
+|-|-|-|
+| `succeeded` | Reserved (do not use with `blocked`) — set when transitioning to `approved` if a dedicated terminal record is needed | n/a |
+| `failed` | The phase produced an error verdict (reviewer rejection, validator fail, adversarial stalemate) | Re-dispatch the same phase with critic feedback |
+| `timed_out` | The phase exceeded its wall-clock budget | Re-dispatch with the same context |
+| `stalled` | A dispatched subagent stopped emitting output past the configured stall window | Re-dispatch with the same context (see workflow-rules.md Stall Detection) |
+| `canceled_by_reconciliation` | A pre-dispatch reconciliation check failed (worktree drift, branch mismatch, budget exhausted, external tracker terminal) | Resolve the underlying drift before re-dispatching; surface to the user |
+| `user_blocked` | The user paused or denied at an interactive checkpoint | Resume only on explicit user instruction |
+
+**Setting the field.** When the orchestrator marks `phase_status: blocked`,
+it MUST also write `phase_terminal_reason` in the same FEATURE.md frontmatter update.
+Leaving the reason `null` while `phase_status: blocked` is a workflow violation —
+the resume path cannot route a generic block to the correct recovery action.
+
+**Clearing the field.** When `phase_status` advances away from `blocked`
+(e.g., `blocked → in_progress` on resume, or `blocked → approved` after a successful retry),
+the orchestrator MUST set `phase_terminal_reason: null` in the same update
+to keep the state file's invariant intact.
 
 ## RESEARCH.md
 
@@ -297,6 +338,14 @@ Users can tail the file in their editor to watch progress;
 {"ts":"2026-04-21T10:05:30Z","type":"SESSION_COMPLETE","actor":"skill-md","total_tokens":289400,"total_duration_ms":1230000,"commits":8,"milestones_completed":3,"milestones_total":3,"cost_usd":4.34}
 ```
 
+**Canonical event vocabulary:**
+
+Event `type` values are a closed set — downstream readers (status reporters, SNAPSHOT.md
+regenerators, dashboards, retrospective tooling) rely on this vocabulary.
+Adding a new event type is a schema change and requires updating this table.
+Existing events are append-only — never rename, never repurpose.
+If an event's meaning needs to evolve, add a new event type instead of redefining an old one.
+
 **Event types:**
 
 | Type | Common extra fields | When |
@@ -304,11 +353,18 @@ Users can tail the file in their editor to watch progress;
 | `SESSION_START` | `feature`, `branch`, `workdir`, `interaction_mode`, `codex_available` | First event; opened on EXECUTE entry |
 | `SESSION_COMPLETE` | `total_tokens`, `total_duration_ms`, `commits`, `milestones_completed`, `cost_usd` | All phases done |
 | `PHASE_ENTER` | `phase` | Entering a new phase |
+| `PHASE_END` | `phase`, `phase_status`, `phase_terminal_reason` (when blocked), `duration_ms` | Phase orchestrator dispatch returned; mirrors final FEATURE.md write |
 | `PREFLIGHT` | `build`, `tests`, `lint`, `typecheck`, `duration_ms` | Pre-flight gate results |
 | `MILESTONE_START` | `milestone`, `title`, `parallel_with` (optional) | Starting a milestone |
 | `MILESTONE_COMPLETE` | `milestone`, `tokens`, `duration_ms`, `commits` | All tasks done + committed |
 | `TASK_START` | `task`, `title` | Dispatching implementer |
 | `TASK_COMPLETE` | `task`, `tokens`, `duration_ms`, `spec`, `quality`, `adversarial_rounds`, `verdict`, `red_team`, `cost_usd` | Task passed reviews (`verdict` is `ACCEPT` or `ACCEPT_WITH_CAVEATS`) |
+| `TASK_FAILED` | `task`, `reason`, `adversarial_rounds`, `tokens`, `duration_ms` | Task ended without an ACCEPT verdict (safety valve, plan-invalidating discovery, user abort) |
+| `DISPATCH_STARTED` | `agent`, `task_id` (optional), `started_at` | A Task subagent dispatch was issued (orchestrator-internal; reserved for stall detection) |
+| `DISPATCH_RETURNED` | `agent`, `task_id` (optional), `elapsed_ms`, `outcome` | A Task subagent dispatch returned (orchestrator-internal; reserved for stall detection) |
+| `STALL_DETECTED` | `agent`, `task_id` (optional), `elapsed_ms`, `stall_timeout_ms`, `action` | A dispatched subagent exceeded the stall timeout (reserved — see workflow-rules.md Stall Detection) |
+| `RECONCILE_FAILED` | `phase`, `check`, `detail` | Pre-dispatch reconciliation rejected the next dispatch (reserved — see workflow-rules.md Pre-Dispatch Reconciliation) |
+| `TEMPLATE_RENDER_ERROR` | `template`, `unresolved` (list of placeholder names) | Dispatch template rendering produced unresolved `{{var}}` placeholders (reserved — see dispatch-templates.md Strict Rendering) |
 | `BATCH_COMPLETE` | `tasks` (list), `tokens`, `duration_ms` | Batch boundary reached |
 | `DISCOVERED` | `from_task`, `discovered`, `summary`, `risk` | Out-of-scope issue captured as new bundle |
 | `TRIAGE_COMPLETE` | `counts` object (`filed`, `backlog`, `discarded`) | DONE-phase triage finished for all pending T-DISC-* bundles |
@@ -326,6 +382,13 @@ Users can tail the file in their editor to watch progress;
 | `CODEX_FAILED` | `step`, `reason` | Codex invocation failed |
 | `BUDGET_WARNING` | `spent_usd`, `budget_usd`, `percent` | ≥80% of budget consumed |
 | `BUDGET_EXHAUSTED` | `spent_usd`, `budget_usd` | 100% reached; stopping or pausing |
+
+Events tagged "reserved" in the table above are part of the vocabulary
+but their emitters land in later changes
+(stall detection and pre-dispatch reconciliation arrive with the resilience PR;
+strict template rendering arrives with the safety PR).
+Documenting them here keeps the vocabulary closed and lets downstream tooling parse
+both current and future event streams without a schema change.
 
 Token and duration values are cumulative per agent bundle
 (implementer + task-critic + any red-team / codex invocations summed for each task).

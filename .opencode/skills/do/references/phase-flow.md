@@ -27,14 +27,43 @@ Red-teamer still receives RESEARCH.md for assumption attacks.
 
 | Phase | SKILL.md Reads | Decision |
 |-|-|-|
-| REFINE | FEATURE.md phase_status | approved → advance; blocked → re-dispatch |
-| RESEARCH | FEATURE.md phase_status, RESEARCH.md exists | approved → advance |
-| PLAN_DRAFT | FEATURE.md phase_status, PLAN.md exists | approved → advance |
-| PLAN_REVIEW | FEATURE.md phase_status (approved or blocked) | approved → bundle + EXECUTE; blocked → PLAN_DRAFT |
+| REFINE | FEATURE.md phase_status, phase_terminal_reason | approved → advance; blocked → route by terminal reason |
+| RESEARCH | FEATURE.md phase_status, phase_terminal_reason, RESEARCH.md exists | approved → advance; blocked → route by terminal reason |
+| PLAN_DRAFT | FEATURE.md phase_status, phase_terminal_reason, PLAN.md exists | approved → advance; blocked → route by terminal reason |
+| PLAN_REVIEW | FEATURE.md phase_status, phase_terminal_reason | approved → bundle + EXECUTE; blocked → PLAN_DRAFT (or route per terminal reason) |
 | BUNDLE_GENERATION | tasks/ directory populated | verified → EXECUTE |
 | EXECUTE (milestone) | FEATURE.md progress, task bundle statuses | all complete → next milestone or VALIDATE |
-| VALIDATE | FEATURE.md phase_status (approved or blocked) | approved → DONE; blocked → EXECUTE |
+| VALIDATE | FEATURE.md phase_status, phase_terminal_reason | approved → DONE; blocked → EXECUTE (or route per terminal reason) |
 | DONE | FEATURE.md (outcomes, PR URL) | report to user |
+
+### Terminal Reason Routing (blocked phases)
+
+When `phase_status: blocked`, SKILL.md reads `phase_terminal_reason` and chooses the recovery path.
+See state-file-schema.md "Phase Status and Terminal Reasons" for the enum semantics.
+
+| `phase_terminal_reason` | SKILL.md action |
+|-|-|
+| `failed` | Re-dispatch the same phase, passing critic/reviewer feedback as `<state_drift>` context |
+| `timed_out` | Re-dispatch the same phase with the original context — no feedback to add |
+| `stalled` | Re-dispatch the same phase with the original context — no feedback to add |
+| `canceled_by_reconciliation` | Surface the reconciliation `check` and `detail` to the user; do NOT re-dispatch until the underlying drift is resolved |
+| `user_blocked` | Halt; resume only when the user issues an explicit instruction |
+| `succeeded` | Treat as a writer error — the reason is reserved and must not appear with `phase_status: blocked`. Log and surface for review. |
+
+Loop limits in **Phase Loop Conditions** still apply when re-dispatching after `failed` / `timed_out` / `stalled`.
+
+### Phase Dispatch Protocol (orchestrator responsibilities on return)
+
+Every phase orchestrator MUST, before its dispatch returns:
+
+1. Set `phase_status` in FEATURE.md frontmatter to one of `approved`, `in_review`, or `blocked`.
+2. If `phase_status: blocked`, also set `phase_terminal_reason` to a non-null value from the enum
+   (state-file-schema.md "Phase Status and Terminal Reasons"). Setting `blocked` without a reason
+   is a workflow violation — SKILL.md cannot route the recovery without it.
+3. If `phase_status` advances away from `blocked`, set `phase_terminal_reason: null` in the same write.
+4. Append a `PHASE_END` event to events.jsonl with `phase`, `phase_status`, `duration_ms`, and
+   `phase_terminal_reason` (when blocked). The event MUST mirror the FEATURE.md write — readers
+   that watch only events.jsonl rely on this consistency.
 
 ### Phase Loop Conditions
 
