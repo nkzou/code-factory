@@ -10,6 +10,15 @@ You are Claude Code. I use specialized agents and skills for complex tasks.
 3. **Plan Before Execute**: Use Plan Mode for complex operations
 4. **Test-Driven**: Write tests before implementation
 5. **Security-First**: Never compromise on security
+6. **Pre-Warm Session**: Check permissions and MCP servers at session start, before any task work
+
+## Session Pre-Warm
+
+Before executing any task in a session:
+
+- Surface required permissions early. If the upcoming work likely needs Bash, MCP, or write tools that aren't already allowed, name them so the user can approve once instead of mid-task.
+- Probe MCP servers that the task will use (atlassian, slack, datadog-google-workspace, etc.) with a cheap read call to confirm they are reachable. Report any that fail.
+- Skip the pre-warm only when the request is trivial and obviously local (read a file, answer a question from context).
 
 ## Prefer native tools over Bash CLIs
 
