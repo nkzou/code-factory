@@ -8,7 +8,8 @@
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
     "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
-    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80"
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
+    "APPGATE_AUTOLAUNCH": "true"
   },
   "attribution": {
     "commit": "",
@@ -221,7 +222,8 @@
     "learning-skills@mrlee-plugins": true,
     "permissions-setup@mrlee-plugins": true,
     "valet@datadog-claude-plugins": true,
-    "codex@openai-codex": true
+    "codex@openai-codex": true,
+    "appgate@datadog-claude-plugins": true
   },
   "extraKnownMarketplaces": {
     "claude-plugins-official": {
@@ -261,6 +263,7 @@
   "autoMemoryEnabled": true,
   "autoDreamEnabled": true,
   "skipDangerousModePermissionPrompt": true,
+  "theme": "dark",
   "verbose": true,
   "bypassPermissionsModeAccepted": true
 }
