@@ -9,7 +9,8 @@
     "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
     "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
-    "APPGATE_AUTOLAUNCH": "true"
+    "APPGATE_AUTOLAUNCH": "true",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6"
   },
   "attribution": {
     "commit": "",
@@ -265,5 +266,6 @@
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark",
   "verbose": true,
-  "bypassPermissionsModeAccepted": true
+  "bypassPermissionsModeAccepted": true,
+  "skillListingBudgetFraction": 0.05
 }
