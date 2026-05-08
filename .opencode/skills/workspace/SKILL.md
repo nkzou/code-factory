@@ -49,7 +49,9 @@ AskUserQuestion(
 
 ## Step 2: Validate Prerequisites
 
-Run before `create` or `validate` modes. Skip for other modes.
+Run before `create`, `ssh`, or `validate` modes. Skip for `list`, `delete`, `connect`.
+
+### 2a: CLI and Network
 
 Check in parallel:
 
@@ -61,7 +63,7 @@ workspaces list 2>&1
 | Check | Pass | Fail action |
 |-------|------|-------------|
 | `workspaces` CLI | Binary found | `brew update && brew install datadog-workspaces` |
-| Appgate VPN | `workspaces list` succeeds | "Connect to Appgate VPN before creating workspaces" |
+| Appgate VPN | `workspaces list` succeeds | "Connect to Appgate VPN before continuing" |
 | GitHub auth | `workspaces list` succeeds | `ddtool auth github login` |
 
 If CLI not installed, offer to install:
@@ -69,6 +71,18 @@ If CLI not installed, offer to install:
 ```bash
 brew update && brew install datadog-workspaces
 ```
+
+### 2b: Pre-Flight Auth Checks
+
+Run the local pre-flight checks from [references/auth-setup.md](references/auth-setup.md):
+
+1. **SSH agent** -- verify `ssh-add -l` shows keys before any `-A` forwarding.
+   If no keys, offer fix (`eval $(ssh-agent) && ssh-add`). Block until resolved.
+2. **GitHub auth** -- verify `ddtool auth github status`.
+   If expired, run `ddtool auth github login` (may trigger OIDC -- surface device codes immediately per auth-setup.md).
+
+Surface failures with AskUserQuestion and offer fixes per auth-setup.md procedures.
+Stop and fix blocking failures before proceeding.
 
 For `validate` mode: report all check results and stop.
 
@@ -187,7 +201,40 @@ I'll start a tmux session when it's ready.
 Status:  workspaces list
 ```
 
-### 3e: Start Tmux Session with Claude
+### 3e: Post-Creation Auth Setup
+
+After SSH config is verified and before starting tmux with Claude,
+run the post-creation auth setup from [references/auth-setup.md](references/auth-setup.md).
+
+Execute remote auth checks sequentially (each may trigger OIDC device-code flows).
+Warn the user before starting -- device codes expire in minutes:
+
+```
+AskUserQuestion(
+  header: "Auth setup",
+  question: "About to run auth setup on the workspace. This may prompt for browser-based OIDC login. Please be ready. Proceed?",
+  options: [
+    "Proceed" -- I'm ready for browser auth prompts,
+    "Skip auth" -- Continue without auth setup (may cause failures later)
+  ]
+)
+```
+
+If "Proceed", run each check sequentially per auth-setup.md:
+
+1. **ddtool staging:** `ssh -A workspace-<name> "ddtool auth login --datacenter us1.staging.dog 2>&1"`
+2. **ddtool ddbuild:** `ssh -A workspace-<name> "ddtool auth login --datacenter us1.ddbuild.io 2>&1"`
+3. **GitHub on workspace:** `ssh -A workspace-<name> "gh auth status 2>&1"` (login if needed)
+4. **SSH forwarding:** `ssh -A workspace-<name> "ssh-add -l 2>&1"`
+
+For each command, monitor output for OIDC patterns per the OIDC Device-Code Surfacing Protocol
+in auth-setup.md. When a device code or browser URL appears, surface it immediately via
+AskUserQuestion and wait for user confirmation before proceeding to the next auth command.
+
+If all checks pass, proceed to 3f.
+If any check fails after retry, warn the user but proceed -- auth can be fixed later.
+
+### 3f: Start Tmux Session with Claude
 
 When the background `workspaces create` task completes successfully,
 SSH into the workspace, cd into the repo, and start a detached tmux session running Claude Code:
@@ -254,11 +301,21 @@ workspaces delete <name>
 
 ## Step 6: SSH into Workspace
 
+### 6a: Pre-SSH Auth Check
+
+Run the pre-flight checks from [references/auth-setup.md](references/auth-setup.md):
+
+1. Verify SSH agent has keys (`ssh-add -l`)
+2. If no keys, offer fix before proceeding
+
+### 6b: Connect
+
 ```bash
-ssh workspace-<name>
+ssh -A workspace-<name>
 ```
 
 The prefix `workspace-` is required. Tab completion works.
+Use `-A` for agent forwarding so git operations work on the workspace.
 
 If SSH fails:
 
@@ -267,6 +324,29 @@ workspaces ssh-config <name>
 ```
 
 Then retry SSH.
+
+### 6c: Post-Entry Auth Validation
+
+After successful SSH, run a lightweight auth check on the workspace:
+
+```bash
+ssh -A workspace-<name> "gh auth status 2>&1 && ssh-add -l 2>&1"
+```
+
+If either fails:
+
+```
+AskUserQuestion(
+  header: "Workspace credentials",
+  question: "Some credentials on the workspace need refresh. Run full auth setup?",
+  options: [
+    "Yes" -- Run auth setup now (may require browser interaction),
+    "Skip" -- Continue without refreshing
+  ]
+)
+```
+
+If "Yes", run the full Post-Creation Auth Setup (Step 3e procedures).
 
 ## Step 7: Connect IDE
 
@@ -288,7 +368,10 @@ Default editor is `intellij` if not specified.
 | Create fails | Check Appgate VPN, GitHub auth, and instance type availability |
 | SSH agent forwarding fails | Verify ssh-agent is running and keys are added (`ssh-add -l`). Suggest `eval $(ssh-agent) && ssh-add`. |
 | Missing `workspace-` prefix in SSH | Use `ssh workspace-<name>`, not `ssh <name>` |
+| OIDC device-code prompt | Surface URL and code immediately via AskUserQuestion. See [references/auth-setup.md](references/auth-setup.md). |
 
 ## Reference
+
+For auth setup procedures (pre-flight checks, post-creation auth, OIDC surfacing), see [references/auth-setup.md](references/auth-setup.md).
 
 For advanced configuration (secrets, instance types, IDE templates, Claude Code setup), see [references/advanced.md](references/advanced.md).

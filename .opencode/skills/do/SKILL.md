@@ -6,7 +6,7 @@ description: >
   "start new feature", "resume feature work", or references to FEATURE.md state files.
 argument-hint: "[feature description] [--auto] [--budget <USD>]"
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Bash(git:*), Bash(gh:*), Bash(find:*), Bash(workspaces:*), Bash(ssh:*), AskUserQuestion, WebFetch
+allowed-tools: Read, Grep, Glob, Bash(git:*), Bash(gh:*), Bash(find:*), Bash(workspaces:*), Bash(ssh:*), AskUserQuestion, WebFetch, Skill
 ---
 
 # Feature Development Orchestrator
@@ -238,7 +238,7 @@ Preferences were collected in Step 1 — execute the chosen setup.
 | **Worktree + branch** | `Skill("worktree", "<slug>")` → `Skill("branch", "<slug>")` → `WORKDIR_PATH` = worktree path |
 | **Branch only** | `Skill("branch", "<slug>")` → `WORKDIR_PATH` = `REPO_ROOT` |
 | **Current branch** | Record current branch → `WORKDIR_PATH` = `REPO_ROOT` |
-| **Workspace** | `workspaces create <ws-prefix>-<slug> --repo <repo> --branch <default> ...` (run_in_background). See 4a-workspace. |
+| **Workspace** | `Skill("workspace", "create <ws-prefix>-<slug>")` -- delegates to `/workspace` skill (handles creation + auth setup). See 4a-workspace. |
 
 **For custom `base_branch`** — `/worktree` and `/branch` auto-detect main, so use direct git commands:
 
@@ -256,13 +256,21 @@ Preferences were collected in Step 1 — execute the chosen setup.
 
 ### 4a-workspace: Post-Creation Setup
 
-When the background `workspaces create` completes:
+**Delegate workspace creation and auth to the `/workspace` skill:**
 
-1. **Construct the remote `/do` command** from stored `feature_description` + `--branch` +
-   (`--auto` if autonomous) + (`--budget <X>` if set):
-   `/do <feature_description> --branch [--auto] [--budget <X>]`
+1. **Invoke workspace creation with auth setup:**
 
-2. **SSH in, start tmux with Claude running `/do`:**
+   ```
+   Skill(skill="workspace", args="create <ws-prefix>-<slug> --repo <repo> --branch <branch>")
+   ```
+
+   The `/workspace` skill handles creation (background, ~10-20 min),
+   SSH agent validation, post-creation auth setup (ddtool, GitHub, OIDC device-code surfacing),
+   and SSH config. Wait for it to complete before proceeding.
+
+2. **Construct the remote `/do` command** from stored `feature_description` + `--branch` +
+   (`--auto` if autonomous) + (`--budget <X>` if set).
+   **SSH in, start tmux with Claude running `/do`:**
 
    ```bash
    REMOTE_CMD="/do <feature_description> --branch [--auto] [--budget <X>]"
@@ -270,7 +278,7 @@ When the background `workspaces create` completes:
    ```
 
    If SSH fails, run `workspaces ssh-config <ws-name>` then retry.
-   Quoting matters — escape single quotes in the feature description before embedding.
+   Quoting matters -- escape single quotes in the feature description before embedding.
 
 3. **Report the join command and STOP:**
 
