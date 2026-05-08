@@ -2,11 +2,12 @@
 name: pr-fix
 description: >
   Use when the user wants to address PR review feedback, fix PR comments, resolve review threads,
-  or respond to code review suggestions on a pull request. Supports --auto for bot/CI automation and --auto-human for fully autonomous mode.
+  or respond to code review suggestions on a pull request.
+  Supports opt-out flags (--no-comments, --no-bot-reviews, --no-ci) and autonomous modes (--auto, --auto-human).
   Triggers: "fix pr feedback", "address pr comments", "resolve pr reviews", "pr fix",
   "address review feedback", "fix review comments", "handle pr feedback",
   "respond to pr review", "address pr feedback", "pr fix --auto".
-argument-hint: "[PR number, URL, or comment URL, optional --reviewer <name>, optional --auto, optional --auto-human]"
+argument-hint: "[PR number, URL, or comment URL, optional --reviewer <name>, optional --no-comments, --no-bot-reviews, --no-ci, --auto, --auto-human]"
 user-invocable: true
 allowed-tools: Bash(git:*), Bash(gh:*), Bash(get_ddci_logs.sh:*), Bash(./scripts/*), Read, Write, Edit, Grep, Glob, AskUserQuestion, Task
 ---
@@ -33,12 +34,37 @@ Parse `$ARGUMENTS` for:
 | PR URL | `github.com/.*/pull/\d+` | `https://github.com/org/repo/pull/42` |
 | Comment URL | `github.com/.*/pull/\d+#discussion_r\d+` | `https://github.com/org/repo/pull/42#discussion_r123` |
 | Reviewer filter | `--reviewer <name>` | `--reviewer alice` |
+| Skip comments | `--no-comments` | `--no-comments` |
+| Skip bot reviews | `--no-bot-reviews` | `--no-bot-reviews` |
+| Skip CI loop | `--no-ci` | `--no-ci` |
 | Autonomous mode | `--auto` | `--auto` |
 | Full autonomous mode | `--auto-human` | `--auto-human` |
 
-**Autonomous mode (`--auto`):** Skips prompts for CI monitoring and automated (bot) review feedback only. Human review threads always require explicit user approval — prompts are never skipped for those. Use when you want CI and bot reviews handled hands-off while retaining control over human feedback.
+### Flag Behavior
 
-**Full autonomous mode (`--auto-human`):** Implies `--auto` and additionally skips prompts for human review threads. Defaults: "Fix all" for non-disagreements, "Explain and keep" for disagreements (code stays unchanged, reviewer gets a reasoned explanation). Use when you want a fully hands-off run across all feedback types.
+**Default (no flags):** All features enabled with interactive prompts. Address human review comments (Steps 2-7),
+trigger bot reviews (Step 8a+8c), and monitor CI (Step 8b) -- each with a user prompt before proceeding.
+
+**Opt-out flags** control which features run:
+
+| Flag | Effect |
+|------|--------|
+| `--no-comments` | Skip human review comment addressing (Steps 2-7). Jump straight to Step 8. |
+| `--no-bot-reviews` | Skip bot review trigger/fix loop (Steps 8a + 8c). |
+| `--no-ci` | Skip CI validation loop (Step 8b). |
+
+Opt-out flags compose freely: `--no-bot-reviews --no-ci` runs only comment addressing.
+`--no-comments --no-ci` runs only the bot review loop.
+
+**Autonomous modes** control prompting, composable with opt-out flags:
+
+| Flag | Effect |
+|------|--------|
+| `--auto` | Skip interactive prompts for bot reviews and CI. Human review threads still prompt. |
+| `--auto-human` | Implies `--auto`. Also skips prompts for human review threads. Defaults: "Fix all" for non-disagreements, "Explain and keep" for disagreements. |
+
+Examples: `--auto --no-ci` = address comments interactively + auto bot review loop, no CI.
+`--auto-human --no-bot-reviews` = fully autonomous comment addressing + CI loop, no bot reviews.
 
 Run in parallel:
 
@@ -69,7 +95,23 @@ Save the changed-files list — it is used throughout for CI failure classificat
 
 **If `mergeable` is `CONFLICTING`:** resolve conflicts before proceeding. Invoke `/fix-conflicts`, then push the resolved merge commit. Re-fetch the changed-files list after resolution since the diff may have grown.
 
+### Flag Routing
+
+Determine which steps to execute based on parsed flags:
+
+| Condition | Steps to execute |
+|-----------|-----------------|
+| `--no-comments` set | Skip Steps 2-7. Jump to Step 8. |
+| `--no-bot-reviews` set | Skip Steps 8a + 8c. |
+| `--no-ci` set | Skip Step 8b. |
+| `--no-comments` + `--no-bot-reviews` + `--no-ci` | Nothing to do. Inform user and stop. |
+
+If all of Step 8 is skipped (`--no-bot-reviews` + `--no-ci`), stop after Step 7 (commit and push).
+If `--no-comments` is set and all of Step 8 is also skipped, inform the user that all features are disabled and stop.
+
 ## Step 2: Fetch Unresolved Review Threads
+
+**If `--no-comments` is set:** skip to Step 8.
 
 Fetch actionable review threads using the `get-pr-comments.sh` script. The script handles GraphQL pagination, structured output, and large-output fallback automatically.
 
@@ -104,7 +146,7 @@ The script returns a JSON array of threads. Each thread contains:
 echo "$THREADS" | jq '[.[] | select(.comments[0].author == "{reviewer}")]'
 ```
 
-**If no threads returned:** all review threads are resolved. Skip to Step 8 (CI validation and automated reviews always run).
+**If no threads returned:** all review threads are resolved. Skip to Step 8 (unless Step 8 is also fully skipped by flags).
 
 ## Step 3: Categorize and Prioritize
 
@@ -321,16 +363,17 @@ git push
 
 ## Step 8: CI Validation + Automated Reviews
 
-**This step ALWAYS runs** — even when no unresolved review threads were found in Step 2.
+**If both `--no-bot-reviews` and `--no-ci` are set:** skip this step entirely. Proceed to Step 9.
 
-**Sequencing rule:** Steps 8a → 8b → 8c execute in order. Each substep has its own prompt.
+**Otherwise**, run enabled substeps in order. Each enabled substep has its own prompt.
 Do NOT combine them into a single question.
-Do NOT skip 8b or 8c after completing 8a.
-Do NOT write a summary or "Next Steps" until ALL three substeps have completed.
+Do NOT write a summary or "Next Steps" until ALL enabled substeps have completed.
 
 After pushing (or if no push was needed because there were no threads to fix), trigger bot reviews and monitor CI. Bot reviews don't depend on CI — start them early so they complete during CI.
 
 ### 8a: Trigger Automated Reviews (if stale)
+
+**If `--no-bot-reviews` is set:** skip to 8b.
 
 Check if new commits exist since the last codex comments:
 
@@ -370,6 +413,8 @@ If triggering: post `@codex` comment now per [references/automated-review-loop.m
 
 ### 8b: CI Validation Loop
 
+**If `--no-ci` is set:** skip to 8c.
+
 **If `--auto` mode:** Proceed with "Yes — watch and fix" (no prompt).
 
 **Interactive mode:**
@@ -396,6 +441,8 @@ Follow the CI validation loop in [references/ci-validation-loop.md](references/c
 **After 8b completes → proceed to 8c if reviews were triggered in 8a.** Do not skip, summarize, or exit.
 
 ### 8c: Process Automated Review Feedback
+
+**If `--no-bot-reviews` is set or no reviews were triggered in 8a:** skip to Step 9.
 
 If bot reviews were triggered in 8a, **you MUST wait for their responses before reporting results**. Do NOT assume reviews are already complete — CI may have finished quickly (or was already green), leaving insufficient time for bots to respond.
 
@@ -460,7 +507,8 @@ gh pr edit {number} --add-reviewer {reviewer1},{reviewer2}
 |-------|--------|
 | `gh` not authenticated | Inform user to run `gh auth login`. Stop. |
 | PR not found | Verify the PR number and repo. Report error. Stop. |
-| No unresolved threads | Inform user all feedback is addressed. Skip to Step 8 — CI validation and automated reviews still run. |
+| No unresolved threads | Inform user all feedback is addressed. Skip to Step 8 (unless fully disabled by flags). |
+| All features disabled | `--no-comments` + `--no-bot-reviews` + `--no-ci` — nothing to do. Inform user and stop. |
 | `get-pr-comments.sh` fails | Fall back to REST: `gh api repos/{owner}/{repo}/pulls/{number}/comments`. Lose thread resolution data but can still categorize and fix. |
 | Large output (>25KB) | Script auto-writes to `/tmp/pr-comments-{owner}-{repo}-{pr}.json`. Use the Read tool on that path. |
 | Thread resolution fails | Report the error. The reply was still posted. Continue with remaining threads. |
