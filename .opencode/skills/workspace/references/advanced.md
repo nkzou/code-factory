@@ -45,8 +45,6 @@ Claude Code is pre-installed in workspaces. If API key is not auto-injected:
 workspaces secrets set ANTHROPIC_APIKEY1=<key>
 ```
 
-If auto-injection fails inside workspace: delete `apiKeyHelper` from `~/.claude/settings.json` and run `/login`.
-
 ## Workspace Lifecycle
 
 | Event | Timing |
