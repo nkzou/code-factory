@@ -18,7 +18,9 @@ gh pr comment {number} --body "@codex review"
 
 ## Phase 2: Wait for Reviews
 
-Record the current review/comment state before triggering, then use the background polling script. This runs in the background so **zero tokens are consumed while waiting**.
+Record the current review/comment state before triggering, then use the background polling script.
+
+**NEVER poll for reviews with inline `sleep` loops or `sleep N && gh api ... comments`.** The script below is the ONLY permitted method — it checks immediately on first poll and consumes zero tokens while waiting.
 
 ```bash
 # Capture baseline counts first
@@ -29,7 +31,7 @@ REVIEW_COUNT=$(gh api "repos/{owner}/{repo}/pulls/{number}/reviews" --paginate 2
 ${CLAUDE_PLUGIN_ROOT}/skills/pr-fix/scripts/poll-reviews.sh {number} {owner}/{repo} "$COMMENT_COUNT" "$REVIEW_COUNT" "{bot-pattern}"
 ```
 
-Run with `run_in_background: true`. The `{bot-pattern}` parameter is a regex matching bot reviewer login names (e.g., `"codex|mybot|app"`). Default: `"bot|app|\[bot\]"`.
+**MUST run with `run_in_background: true`.** The `{bot-pattern}` parameter is a regex matching bot reviewer login names (e.g., `"codex|mybot|app"`). Default: `"bot|app|\[bot\]"`.
 
 The script handles `:eyes:` emoji detection automatically — it waits until the emoji clears from PR comments and body before checking for new feedback. Polls every 30 seconds for up to 15 minutes.
 

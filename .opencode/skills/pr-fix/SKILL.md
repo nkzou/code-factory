@@ -365,11 +365,11 @@ git push
 
 **If both `--no-bot-reviews` and `--no-ci` are set:** skip this step entirely. Proceed to Step 9.
 
-**Otherwise**, run enabled substeps in order. Each enabled substep has its own prompt.
-Do NOT combine them into a single question.
-Do NOT write a summary or "Next Steps" until ALL enabled substeps have completed.
+Run enabled substeps in order. Do NOT combine into a single question or write a summary until ALL have completed.
 
-After pushing (or if no push was needed because there were no threads to fix), trigger bot reviews and monitor CI. Bot reviews don't depend on CI — start them early so they complete during CI.
+**POLLING RULE — NEVER use inline `sleep` loops, `sleep N && gh pr checks`, or any foreground sleep-based polling.**
+All CI and review waiting MUST use the background scripts below with `run_in_background: true`.
+Scripts check immediately on first poll (zero delay), so results already ready return instantly.
 
 ### 8a: Trigger Automated Reviews (if stale)
 
@@ -389,11 +389,7 @@ gh api repos/{owner}/{repo}/pulls/{number}/commits \
 
 Compare timestamps. If the latest commit is **after** the latest bot comment (or no bot comments exist), reviews are stale.
 
-**If reviews are current:** skip to 8b — no re-trigger needed.
-
-**If `--auto` mode:** Trigger immediately (no prompt).
-
-**Interactive mode:**
+**If reviews are current:** skip to 8b. **If `--auto` mode:** trigger immediately (no prompt). **Interactive mode:**
 
 <interaction>
 AskUserQuestion(
@@ -407,9 +403,7 @@ AskUserQuestion(
 )
 </interaction>
 
-If triggering: post `@codex` comment now per [references/automated-review-loop.md](references/automated-review-loop.md) Phase 1. **Do NOT wait here** — bots review in background while CI runs in 8b. Step 8c will poll and wait for their responses.
-
-**After 8a completes → proceed to 8b.** Do not skip, summarize, or exit.
+If triggering: post `@codex` per [references/automated-review-loop.md](references/automated-review-loop.md) Phase 1. Do NOT wait — 8c will poll later. **Proceed to 8b.**
 
 ### 8b: CI Validation Loop
 
@@ -431,28 +425,35 @@ AskUserQuestion(
 )
 </interaction>
 
-**If "No":** skip to 8c.
+**If "No":** skip to 8c. Otherwise, start the CI poller in the background:
 
-Follow the CI validation loop in [references/ci-validation-loop.md](references/ci-validation-loop.md).
+```bash
+# MUST use run_in_background: true — NEVER sleep in foreground
+./scripts/poll-ci.sh {number}
+```
 
-- **"Yes — watch and fix"**: full loop — wait for CI, analyze failures, fix, commit, push, recheck (max 3 iterations).
-- **"Just watch"**: wait for CI to complete and report results. No fixes applied.
+Handle the exit state per [references/ci-validation-loop.md](references/ci-validation-loop.md) Phase 1.
+"Yes — watch and fix": on `FAILURES_DETECTED`, follow Phases 2-4 (analyze, fix, loop — max 3 iterations).
+"Just watch": report results from script output. No fixes applied.
 
-**After 8b completes → proceed to 8c if reviews were triggered in 8a.** Do not skip, summarize, or exit.
+**After 8b completes → proceed to 8c if reviews were triggered in 8a.**
 
 ### 8c: Process Automated Review Feedback
 
 **If `--no-bot-reviews` is set or no reviews were triggered in 8a:** skip to Step 9.
 
-If bot reviews were triggered in 8a, **you MUST wait for their responses before reporting results**. Do NOT assume reviews are already complete — CI may have finished quickly (or was already green), leaving insufficient time for bots to respond.
+You MUST poll for bot responses — do NOT assume they are already complete. Start the review poller in the background:
 
-Follow [references/automated-review-loop.md](references/automated-review-loop.md) starting from **Phase 2** (Phase 1 trigger already done in 8a). Phase 2 polls for responses with a 15-minute timeout per reviewer — this polling is mandatory, not optional.
+```bash
+# MUST use run_in_background: true — NEVER sleep in foreground
+COMMENT_COUNT=$(gh api "repos/{owner}/{repo}/pulls/{number}/comments" --paginate 2>/dev/null | jq -s 'add | length')
+REVIEW_COUNT=$(gh api "repos/{owner}/{repo}/pulls/{number}/reviews" --paginate 2>/dev/null | jq -s 'add | [.[] | select(.state != "COMMENTED")] | length')
+./scripts/poll-reviews.sh {number} {owner}/{repo} "$COMMENT_COUNT" "$REVIEW_COUNT" "codex"
+```
 
-- **"Yes — review and fix"**: wait for responses, fix actionable feedback, commit, push, re-trigger (max 3 iterations).
-- **"Just trigger"**: wait for responses and report. No fixes applied.
-- **If reviews were not triggered in 8a:** skip this substep.
-
-Append both the CI loop and review loop reports to the Step 9 summary.
+Handle the exit state per [references/automated-review-loop.md](references/automated-review-loop.md) Phase 2.
+"Yes — review and fix": on `REVIEWS_READY`, follow Phases 3-7 (read, fix, push, reply, loop — max 3 iterations).
+"Just trigger": report results. No fixes.
 
 **After 8c completes → proceed to Step 9.** The summary is the ONLY place to report final status and next steps.
 
@@ -517,7 +518,7 @@ gh pr edit {number} --add-reviewer {reviewer1},{reviewer2}
 | Push fails | Report the error. Do NOT force-push. Let user decide. |
 | Merge conflict after edits | Report conflicting files. Let user resolve manually. |
 | Line numbers outdated | If comment is marked `outdated`, inform user the code has changed since the review. Read the file and attempt to find the relevant code by context. |
-| CI check timeout | If `gh pr checks --watch` hangs beyond 20 min, fall back to polling. Report timeout to user. |
+| CI poller timeout | If `poll-ci.sh` reports TIMEOUT (20 min), report to user and ask how to proceed. |
 | CI fix loop exceeds 3 iterations | Stop. Report remaining failures with log excerpts. Let user investigate. |
 | Same CI failure recurs after fix | Mark as unfixable. Do NOT retry the same fix. Report to user. |
 | DDCI logs unavailable | Skip log analysis. Report the Mosaic URL for manual investigation. |

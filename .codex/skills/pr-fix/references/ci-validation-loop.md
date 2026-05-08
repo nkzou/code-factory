@@ -8,13 +8,15 @@ After pushing fixes, monitor CI status. If checks fail, analyze failures, apply 
 
 ## Phase 1: Wait for CI
 
-After the push from Step 7, wait for CI to start and complete using the background polling script. This runs in the background so **zero tokens are consumed while waiting**.
+After the push from Step 7, wait for CI to start and complete using the background polling script.
+
+**NEVER poll CI with inline `sleep` loops or `sleep N && gh pr checks`.** The script below is the ONLY permitted method — it checks immediately on first poll and consumes zero tokens while waiting.
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/skills/pr-fix/scripts/poll-ci.sh {number}
 ```
 
-Run with `run_in_background: true`. The script automatically filters out approval-gated checks (merge gate, peer review, manual approval, codeowner) and polls every 30 seconds for up to 20 minutes.
+**MUST run with `run_in_background: true`.** The script automatically filters out approval-gated checks (merge gate, peer review, manual approval, codeowner) and polls every 30 seconds for up to 20 minutes.
 
 ### Handle the script's exit state
 
