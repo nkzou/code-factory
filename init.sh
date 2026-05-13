@@ -617,11 +617,18 @@ configure_pi_aigateway() {
     fi
 
     local cfg="$PI_GLOBAL_DIR/models.json"
+    local pi_config="$SCRIPT_DIR/pi.json"
     local email team
     email=$(git config --global user.email 2>/dev/null || echo "$USER@datadoghq.com")
     team="${DD_TEAM:-unknown}"
 
     mkdir -p "$(dirname "$cfg")"
+
+    if [[ ! -f "$pi_config" ]]; then
+        errors+=("pi: $pi_config not found")
+        echo "  FAIL  $pi_config not found"
+        return 1
+    fi
 
     # Skip if any Datadog AI Gateway provider is already present. Detects both
     # our static seed names ("datadog-ai-gateway", "datadog-ai-gateway-anthropic")
@@ -633,50 +640,13 @@ configure_pi_aigateway() {
     fi
 
     local template
-    template=$(cat <<TEMPLATE_EOF
-{
-  "providers": {
-    "datadog-ai-gateway": {
-      "baseUrl": "https://ai-gateway.us1.prod.dog/v1",
-      "api": "openai-responses",
-      "apiKey": "!ddtool auth token rapid-ai-platform --datacenter us1.prod.dog",
-      "headers": {
-        "source": "pi",
-        "org-id": "2",
-        "x-llmo-force-redaction": "true",
-        "x-dd-tag-dd.user_email": "$email",
-        "x-dd-tag-ml_app": "pi",
-        "x-dd-tag-dd.team": "$team"
-      },
-      "models": [
-        {"id": "openai/gpt-5.5", "name": "GPT-5.5 (OpenAI)", "reasoning": true, "input": ["text","image"], "contextWindow": 200000},
-        {"id": "openai/gpt-5.5-mini", "name": "GPT-5.5 Mini (OpenAI)", "reasoning": true, "input": ["text","image"], "contextWindow": 200000}
-      ]
-    },
-    "datadog-ai-gateway-anthropic": {
-      "baseUrl": "https://ai-gateway.us1.prod.dog",
-      "api": "anthropic-messages",
-      "apiKey": "!ddtool auth token rapid-ai-platform --datacenter us1.prod.dog",
-      "authHeader": true,
-      "headers": {
-        "source": "pi",
-        "org-id": "2",
-        "provider": "anthropic",
-        "x-llmo-force-redaction": "true",
-        "x-dd-tag-dd.user_email": "$email",
-        "x-dd-tag-ml_app": "pi",
-        "x-dd-tag-dd.team": "$team"
-      },
-      "models": [
-        {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5 (AIGW)", "reasoning": true, "input": ["text","image"], "contextWindow": 200000},
-        {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6 (AIGW)", "reasoning": true, "input": ["text","image"], "contextWindow": 200000},
-        {"id": "claude-opus-4-7", "name": "Claude Opus 4.7 (AIGW)", "reasoning": true, "input": ["text","image"], "contextWindow": 200000}
-      ]
-    }
-  }
-}
-TEMPLATE_EOF
-)
+    if ! template=$(jq --arg email "$email" --arg team "$team" \
+        '(.. | strings) |= (gsub("\\{\\{email\\}\\}"; $email) | gsub("\\{\\{team\\}\\}"; $team))' \
+        "$pi_config" 2>/dev/null); then
+        errors+=("pi: failed to render $pi_config")
+        echo "  FAIL  could not render $pi_config"
+        return 1
+    fi
 
     if [[ -f "$cfg" ]]; then
         cp "$cfg" "$cfg.bak.$(date +%s)"
