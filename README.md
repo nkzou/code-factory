@@ -1,6 +1,6 @@
 # code-factory
 
-rtfpessoa's personal [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [OpenCode](https://opencode.ai) marketplace. It packages reusable skills and agents for structured feature delivery, docs workflows, and git operations.
+rtfpessoa's personal marketplace for [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenCode](https://opencode.ai), [Codex](https://github.com/openai/codex), and [pi.dev](https://pi.dev). It packages reusable skills and agents for structured feature delivery, docs workflows, and git operations.
 
 ## Quick Reference
 
@@ -249,3 +249,16 @@ Declares Atlassian, Datadog, and chrome-devtools MCP servers for Claude Code.
 ### `sync-opencode.sh`
 
 Generates `.opencode/skills`, `.opencode/agents`, and `.opencode/commands` from plugin source definitions, including frontmatter/tool-name transformations and stale-check mode (`--check`).
+
+### `sync-codex.sh`
+
+Generates `.codex/skills` (with collapsed single-line frontmatter and per-skill `agents/openai.yaml` metadata) and `.codex/agents/*.toml` for [OpenAI Codex](https://github.com/openai/codex). Stale-check mode (`--check`).
+
+### `sync-pi.sh` and `pi-extensions/`
+
+Generates `.pi/skills`, `.pi/prompts` (slash-command templates for user-invocable skills), `.pi/agents` (for the `pi-subagents` extension), and `.pi/extensions/mcp-wrapper` (HTTP MCP wrapper built from `pi-extensions/mcp-wrapper/`) for [pi.dev](https://pi.dev). `init.sh` symlinks everything into `~/.pi/agent/` and installs Pi packages from two sources:
+
+- Community: `pi-rtk`, `pi-webfetch-to-markdown` (subagent runtime ships locally as `pi-extensions/subagent-runner/`, so no third-party dependency needed)
+- Datadog [`ddoghq-sandbox/datadog-pi-packages`](https://github.com/ddoghq-sandbox/datadog-pi-packages): cloned to `$DD_PI_REPO` (default `~/dd/datadog-pi-packages`), then `pi install` for `refresh-models` and `confluence-adf`
+
+If `ddtool` is authenticated and `models.json` has no AI Gateway provider, `init.sh` seeds `~/.pi/agent/models.json` from a static template so sessions route through the Datadog AI Gateway with `ml_app=pi` tagging. After install, run `/refresh-models` from a Pi session to discover live model IDs (including Ollama) and migrate to the managed `ai-gw-*` provider layout. Opt out of the static seed with `PI_AUTOCONFIG=0`. OAuth-flowed MCP servers (slack) require `PI_MCP_<SERVER>_TOKEN` env vars; auto-approve writes with `PI_MCP_AUTOAPPROVE=1`. The `subagent-runner` extension registers a `subagent` tool that delegates to any agent under `~/.pi/agent/agents/` by spinning up an in-process `AgentSession` (shares the parent's auth and model registry, no fork/exec). Tune with `PI_SUBAGENT_MAX_CONCURRENCY` (default 4) and `PI_SUBAGENT_MAX_DEPTH` (default 2).

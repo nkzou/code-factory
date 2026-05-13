@@ -417,6 +417,284 @@ fi
 echo ""
 echo "Linked ${#codex_new_manifest[@]} entries to ~/.codex/. Cleaned $codex_cleaned stale entries."
 
+# Generate Pi assets in the repo
+echo ""
+echo "Syncing Pi skills, prompts, agents, and MCP extension..."
+"$SCRIPT_DIR/sync-pi.sh"
+
+# Propagate .pi/{skills,prompts,agents,extensions} to ~/.pi/agent/
+echo ""
+echo "Linking to ~/.pi/agent/..."
+
+PI_GLOBAL_DIR="$HOME/.pi/agent"
+PI_LOCAL_DIR="$SCRIPT_DIR/.pi"
+PI_MANIFEST="$PI_GLOBAL_DIR/.code-factory-managed"
+
+pi_new_manifest=()
+
+pi_old_manifest=()
+if [[ -f "$PI_MANIFEST" ]]; then
+    while IFS= read -r line; do
+        pi_old_manifest+=("$line")
+    done < "$PI_MANIFEST"
+fi
+
+# Symlink each Pi skill directory
+if [[ -d "$PI_LOCAL_DIR/skills" ]]; then
+    mkdir -p "$PI_GLOBAL_DIR/skills"
+    for skill_src in "$PI_LOCAL_DIR/skills"/*/; do
+        [[ -d "$skill_src" ]] || continue
+        skill_name=$(basename "$skill_src")
+        skill_dest="$PI_GLOBAL_DIR/skills/$skill_name"
+        if ! ln -sfn "$skill_src" "$skill_dest"; then
+            errors+=("$skill_src -> $skill_dest: ln -sfn failed")
+            echo "  FAIL  skills/$skill_name/"
+        else
+            pi_new_manifest+=("$skill_dest")
+            echo "  LINK  skills/$skill_name/"
+        fi
+    done
+fi
+
+# Symlink each Pi prompt file
+if [[ -d "$PI_LOCAL_DIR/prompts" ]]; then
+    mkdir -p "$PI_GLOBAL_DIR/prompts"
+    while IFS= read -r prompt_src; do
+        prompt_name=$(basename "$prompt_src")
+        prompt_dest="$PI_GLOBAL_DIR/prompts/$prompt_name"
+        if ! ln -sf "$prompt_src" "$prompt_dest"; then
+            errors+=("$prompt_src -> $prompt_dest: ln -sf failed")
+            echo "  FAIL  prompts/$prompt_name"
+        else
+            pi_new_manifest+=("$prompt_dest")
+            echo "  LINK  prompts/$prompt_name"
+        fi
+    done < <(find "$PI_LOCAL_DIR/prompts" -name "*.md" | sort)
+fi
+
+# Symlink each Pi agent file
+if [[ -d "$PI_LOCAL_DIR/agents" ]]; then
+    mkdir -p "$PI_GLOBAL_DIR/agents"
+    while IFS= read -r agent_src; do
+        agent_name=$(basename "$agent_src")
+        agent_dest="$PI_GLOBAL_DIR/agents/$agent_name"
+        if ! ln -sf "$agent_src" "$agent_dest"; then
+            errors+=("$agent_src -> $agent_dest: ln -sf failed")
+            echo "  FAIL  agents/$agent_name"
+        else
+            pi_new_manifest+=("$agent_dest")
+            echo "  LINK  agents/$agent_name"
+        fi
+    done < <(find "$PI_LOCAL_DIR/agents" -name "*.md" | sort)
+fi
+
+# Symlink each Pi extension directory
+if [[ -d "$PI_LOCAL_DIR/extensions" ]]; then
+    mkdir -p "$PI_GLOBAL_DIR/extensions"
+    for ext_src in "$PI_LOCAL_DIR/extensions"/*/; do
+        [[ -d "$ext_src" ]] || continue
+        ext_name=$(basename "$ext_src")
+        ext_dest="$PI_GLOBAL_DIR/extensions/$ext_name"
+        if ! ln -sfn "$ext_src" "$ext_dest"; then
+            errors+=("$ext_src -> $ext_dest: ln -sfn failed")
+            echo "  FAIL  extensions/$ext_name/"
+        else
+            pi_new_manifest+=("$ext_dest")
+            echo "  LINK  extensions/$ext_name/"
+        fi
+    done
+fi
+
+# Pi manifest cleanup
+if [[ ${#pi_new_manifest[@]} -gt 0 ]]; then
+    pi_sorted_manifest=$(printf '%s\n' "${pi_new_manifest[@]}" | sort)
+else
+    pi_sorted_manifest=""
+fi
+pi_cleaned=0
+for old_file in "${pi_old_manifest[@]+"${pi_old_manifest[@]}"}"; do
+    [[ -z "$old_file" ]] && continue
+    if ! echo "$pi_sorted_manifest" | grep -qxF "$old_file"; then
+        if [[ -e "$old_file" || -L "$old_file" ]]; then
+            rm -f "$old_file"
+            echo "  CLEAN  $old_file"
+            pi_cleaned=$((pi_cleaned + 1))
+        fi
+        parent=$(dirname "$old_file")
+        rmdir "$parent" 2>/dev/null || true
+    fi
+done
+
+mkdir -p "$PI_GLOBAL_DIR"
+if [[ -n "$pi_sorted_manifest" ]]; then
+    echo "$pi_sorted_manifest" > "$PI_MANIFEST"
+else
+    : > "$PI_MANIFEST"
+fi
+
+echo ""
+echo "Linked ${#pi_new_manifest[@]} entries to ~/.pi/agent/. Cleaned $pi_cleaned stale entries."
+
+# Install curated pi.dev packages
+echo ""
+echo "Installing Pi packages..."
+if command -v pi &>/dev/null; then
+    # Community packages: helpers (subagent runtime ships locally under
+    # pi-extensions/subagent-runner/, so no third-party install needed)
+    PI_REMOTE_PACKAGES=(
+        "git:github.com/badlogic/pi-rtk"
+        "git:github.com/badlogic/pi-webfetch-to-markdown"
+    )
+    for pkg in "${PI_REMOTE_PACKAGES[@]}"; do
+        if pi install "$pkg" 2>&1 | tail -1; then
+            echo "  OK  $pkg"
+        else
+            echo "  WARN  $pkg install failed (may already be installed)"
+        fi
+    done
+
+    # Datadog packages: clone-or-update the marketplace repo, then install by local path.
+    # The repo root is intentionally a catalog, not a pi package -- each subdir under
+    # packages/ must be installed individually.
+    DD_PI_REPO="${DD_PI_REPO:-$HOME/dd/datadog-pi-packages}"
+    DD_PI_REMOTE="git@github.com:ddoghq-sandbox/datadog-pi-packages.git"
+    mkdir -p "$(dirname "$DD_PI_REPO")"
+    if [[ -d "$DD_PI_REPO/.git" ]]; then
+        if git -C "$DD_PI_REPO" pull --ff-only 2>&1 | tail -1; then
+            echo "  OK  $DD_PI_REPO updated"
+        else
+            echo "  WARN  $DD_PI_REPO update failed"
+        fi
+    elif [[ ! -e "$DD_PI_REPO" ]]; then
+        if git clone --depth 1 "$DD_PI_REMOTE" "$DD_PI_REPO" 2>&1 | tail -1; then
+            echo "  OK  $DD_PI_REPO cloned"
+        else
+            echo "  WARN  $DD_PI_REPO clone failed (need access to ddoghq-sandbox; see https://github.com/ddoghq-sandbox/datadog-pi-packages/blob/main/docs/github-auth.md)"
+        fi
+    fi
+
+    if [[ -d "$DD_PI_REPO/packages" ]]; then
+        DD_PI_PACKAGES=(
+            "refresh-models"
+            "confluence-adf"
+        )
+        for pkg in "${DD_PI_PACKAGES[@]}"; do
+            pkg_path="$DD_PI_REPO/packages/$pkg"
+            if [[ ! -d "$pkg_path" ]]; then
+                echo "  WARN  $pkg not found at $pkg_path"
+                continue
+            fi
+            if pi install "$pkg_path" 2>&1 | tail -1; then
+                echo "  OK  datadog-pi-packages/$pkg"
+            else
+                echo "  WARN  datadog-pi-packages/$pkg install failed"
+            fi
+        done
+    fi
+else
+    echo "  SKIP  pi CLI not found (install via: npm i -g @earendil-works/pi-coding-agent)"
+fi
+
+# Configure Pi to use Datadog AI Gateway (opt out via PI_AUTOCONFIG=0)
+echo ""
+echo "Configuring Pi AI Gateway..."
+configure_pi_aigateway() {
+    if [[ "${PI_AUTOCONFIG:-1}" == "0" ]]; then
+        echo "  SKIP  PI_AUTOCONFIG=0"
+        return 0
+    fi
+    if ! command -v pi &>/dev/null && [[ ! -d "$HOME/.pi" ]]; then
+        echo "  SKIP  pi not installed"
+        return 0
+    fi
+    if ! command -v ddtool &>/dev/null; then
+        echo "  SKIP  ddtool not installed (see https://datadoghq.atlassian.net/wiki/spaces/~5e9d84f05f50bf0c0b460b93/pages/6699122806)"
+        return 0
+    fi
+    if ! ddtool auth token rapid-ai-platform --datacenter us1.prod.dog >/dev/null 2>&1; then
+        echo "  SKIP  ddtool not authed (run: ddtool auth login rapid-ai-platform --datacenter us1.prod.dog)"
+        return 0
+    fi
+
+    local cfg="$PI_GLOBAL_DIR/models.json"
+    local email team
+    email=$(git config --global user.email 2>/dev/null || echo "$USER@datadoghq.com")
+    team="${DD_TEAM:-unknown}"
+
+    mkdir -p "$(dirname "$cfg")"
+
+    # Skip if any Datadog AI Gateway provider is already present. Detects both
+    # our static seed names ("datadog-ai-gateway", "datadog-ai-gateway-anthropic")
+    # and the /refresh-models-managed "ai-gw-*" names. Lets users adopt
+    # /refresh-models as the source of truth without us clobbering their config.
+    if [[ -f "$cfg" ]] && jq -e '(.providers // {}) | keys | map(select(startswith("ai-gw-") or startswith("datadog-ai-gateway"))) | length > 0' "$cfg" >/dev/null 2>&1; then
+        echo "  OK  $cfg already configured"
+        return 0
+    fi
+
+    local template
+    template=$(cat <<TEMPLATE_EOF
+{
+  "providers": {
+    "datadog-ai-gateway": {
+      "baseUrl": "https://ai-gateway.us1.prod.dog/v1",
+      "api": "openai-responses",
+      "apiKey": "!ddtool auth token rapid-ai-platform --datacenter us1.prod.dog",
+      "headers": {
+        "source": "pi",
+        "org-id": "2",
+        "x-llmo-force-redaction": "true",
+        "x-dd-tag-dd.user_email": "$email",
+        "x-dd-tag-ml_app": "pi",
+        "x-dd-tag-dd.team": "$team"
+      },
+      "models": [
+        {"id": "openai/gpt-5.5", "name": "GPT-5.5 (OpenAI)", "reasoning": true, "input": ["text","image"], "contextWindow": 200000},
+        {"id": "openai/gpt-5.5-mini", "name": "GPT-5.5 Mini (OpenAI)", "reasoning": true, "input": ["text","image"], "contextWindow": 200000}
+      ]
+    },
+    "datadog-ai-gateway-anthropic": {
+      "baseUrl": "https://ai-gateway.us1.prod.dog",
+      "api": "anthropic-messages",
+      "apiKey": "!ddtool auth token rapid-ai-platform --datacenter us1.prod.dog",
+      "authHeader": true,
+      "headers": {
+        "source": "pi",
+        "org-id": "2",
+        "provider": "anthropic",
+        "x-llmo-force-redaction": "true",
+        "x-dd-tag-dd.user_email": "$email",
+        "x-dd-tag-ml_app": "pi",
+        "x-dd-tag-dd.team": "$team"
+      },
+      "models": [
+        {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5 (AIGW)", "reasoning": true, "input": ["text","image"], "contextWindow": 200000},
+        {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6 (AIGW)", "reasoning": true, "input": ["text","image"], "contextWindow": 200000},
+        {"id": "claude-opus-4-7", "name": "Claude Opus 4.7 (AIGW)", "reasoning": true, "input": ["text","image"], "contextWindow": 200000}
+      ]
+    }
+  }
+}
+TEMPLATE_EOF
+)
+
+    if [[ -f "$cfg" ]]; then
+        cp "$cfg" "$cfg.bak.$(date +%s)"
+        echo "$template" | jq --slurpfile existing "$cfg" '.providers + $existing[0].providers as $merged | $existing[0] | .providers = $merged' > "$cfg.tmp"
+        mv "$cfg.tmp" "$cfg"
+        echo "  OK  merged Datadog AI Gateway providers into $cfg"
+    else
+        echo "$template" > "$cfg"
+        echo "  OK  wrote $cfg"
+    fi
+
+    if ! jq . "$cfg" >/dev/null 2>&1; then
+        errors+=("pi: models.json is invalid JSON after autoconfig")
+        echo "  FAIL  $cfg invalid JSON"
+    fi
+}
+configure_pi_aigateway
+
 # Install git hooks from .githooks/
 for HOOK_SRC in "$SCRIPT_DIR/.githooks"/*; do
     [[ -f "$HOOK_SRC" ]] || continue
