@@ -6,6 +6,16 @@
       "oauth": null
     },
     {
+      "name": "datadog-gmail",
+      "url": "https://gmail-mcp-server-834963730936.us-central1.run.app/mcp",
+      "oauth": null
+    },
+    {
+      "name": "datadog-google-calendar",
+      "url": "https://google-calendar-mcp-server-834963730936.us-central1.run.app/mcp",
+      "oauth": null
+    },
+    {
       "name": "datadog-google-workspace",
       "url": "https://google-workspace-mcp-server-834963730936.us-central1.run.app/mcp",
       "oauth": null

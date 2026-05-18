@@ -29,13 +29,15 @@ lint: ## Validate JSON and JSONC files
 		echo "  SKIP  no JSONC files found"; \
 	elif command -v node > /dev/null 2>&1; then \
 		for f in $$jsonc_files; do \
-			node -e "const fs=require('fs'); \
-				const s=fs.readFileSync('$$f','utf8'); \
-				const stripped=s.replace(/\/\/.*$$/gm,'').replace(/,(\s*[}\]])/g,'\$$1'); \
-				JSON.parse(stripped); \
-				console.log('  OK  $$f');" 2>/dev/null || \
-			{ echo "  WARN  $$f (JSONC validation requires manual review)"; }; \
+			if node ./validate-jsonc.mjs "$$f" 2>/dev/null; then \
+				echo "  OK  $$f"; \
+			else \
+				echo "  FAIL  $$f"; \
+				node ./validate-jsonc.mjs "$$f"; \
+				ok=false; \
+			fi; \
 		done; \
+		if [ "$$ok" = false ]; then exit 1; fi \
 	else \
 		echo "  SKIP  JSONC files (node not found; install Node.js for JSONC validation)"; \
 	fi
