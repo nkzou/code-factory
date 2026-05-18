@@ -23,6 +23,14 @@
     "datadog-google-workspace": {
       "type": "http",
       "url": "https://google-workspace-mcp-server-834963730936.us-central1.run.app/mcp"
+    },
+    "datadog-gmail": {
+      "type": "http",
+      "url": "https://gmail-mcp-server-834963730936.us-central1.run.app/mcp"
+    },
+    "datadog-google-calendar": {
+      "type": "http",
+      "url": "https://google-calendar-mcp-server-834963730936.us-central1.run.app/mcp"
     }
   }
 }
