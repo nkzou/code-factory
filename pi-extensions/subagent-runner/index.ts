@@ -16,7 +16,7 @@
 //   PI_SUBAGENT_MAX_DEPTH        Max nesting depth (default 2)
 //   PI_AGENTS_DIR                Override the agent definitions directory
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   AuthStorage,
   createAgentSession,
@@ -24,7 +24,7 @@ import {
   ModelRegistry,
   parseFrontmatter,
   SessionManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 

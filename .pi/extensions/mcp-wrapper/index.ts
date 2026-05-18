@@ -16,7 +16,7 @@
 //     PI_MCP_<SERVER>_TOKEN env (e.g. PI_MCP_SLACK_TOKEN)
 //   - No streaming responses surfaced to the agent; we collect the full reply
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

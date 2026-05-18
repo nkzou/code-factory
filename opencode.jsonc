@@ -293,6 +293,10 @@
       "type": "remote",
       "url": "https://mcp.slack.com/mcp"
     },
+    "slack-sandbox": {
+      "type": "remote",
+      "url": "https://mcp.slack.com/mcp"
+    },
     "datadog-google-workspace": {
       "type": "remote",
       "url": "https://google-workspace-mcp-server-834963730936.us-central1.run.app/mcp"
