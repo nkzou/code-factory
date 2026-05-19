@@ -729,14 +729,14 @@ if command -v claude &>/dev/null; then
     else
         echo "  No marketplaces installed"
     fi
-    # Update installed plugins
-    installed_plugins=$(claude plugin list --json 2>/dev/null | jq -r '.[].id' 2>/dev/null || true)
+    # Update installed plugins (preserve each plugin's installation scope)
+    installed_plugins=$(claude plugin list --json 2>/dev/null | jq -r '.[] | "\(.id)\t\(.scope)"' 2>/dev/null || true)
     if [[ -n "$installed_plugins" ]]; then
-        while IFS= read -r plugin; do
-            if claude plugin update "$plugin" 2>&1; then
-                echo "  OK  plugin $plugin updated"
+        while IFS=$'\t' read -r plugin scope; do
+            if claude plugin update "$plugin" --scope "$scope" 2>&1; then
+                echo "  OK  plugin $plugin updated (scope $scope)"
             else
-                echo "  WARN  plugin $plugin update failed"
+                echo "  WARN  plugin $plugin update failed (scope $scope)"
             fi
         done <<< "$installed_plugins"
     else
