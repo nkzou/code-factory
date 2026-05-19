@@ -1,6 +1,6 @@
 ---
 name: "debug"
-description: "Use when encountering any bug, test failure, unexpected behavior, or production issue that requires investigation before fixing. Triggers: \"debug\", \"investigate bug\", \"fix failing test\", \"why is this broken\", \"root cause\", \"debug this\", \"what's causing\", \"track down\", \"bisect\"."
+description: "Use when encountering any bug, test failure, unexpected behavior, or production issue that requires investigation before fixing. Triggers: \"debug\", \"investigate bug\", \"fix failing test\", \"why is this broken\", \"root cause\", \"debug this\", \"what's causing\", \"track down\", \"bisect\", \"prod bug\", \"production incident\", \"investigate incident\", \"errors in datadog\", \"5xx spike\", \"customer issue\", \"why is the service failing\", \"staging bug\"."
 ---
 
 # Systematic Debugging
@@ -46,6 +46,9 @@ Apply **especially** when:
 | "This is too simple for process" | Simple bugs with skipped investigation have the highest rework rate. |
 | "I'll add tests after the fix" | Tests-after prove "what does this do?" not "what should this do?" |
 | "Multiple changes at once will be faster" | Changing multiple variables prevents isolating the cause. |
+| "I can guess the prod error without Datadog" | Real error messages have variations and stack contexts you can't predict. Phase 0 gives the exact strings. |
+| "Phase 0 is overhead for a quick prod bug" | The quick prod bug is exactly where telemetry saves the most time. |
+| "I'll grep prod logs later if reproduction fails" | Reproduction without prod evidence often fails on wrong inputs and you waste a full cycle. |
 
 ## Red Flags — STOP Immediately
 
@@ -76,13 +79,31 @@ Generate a session ID: `<timestamp>-<slug>` (slug from the bug description, keba
 
 Format all Markdown written to state files with semantic line breaks: one sentence per line, break after clause-separating punctuation (commas, semicolons, colons). Target 120 characters per line.
 
+**Phase state machine** (`phase` field in DEBUG.md frontmatter):
+
+| Value | Set by |
+|---|---|
+| `CLASSIFY` | Step 1 (initial) |
+| `PHASE_0` | Step 3 entry — telemetry subagent in flight |
+| `PHASE_0_COMPLETE` | Step 3 exit — telemetry section appended |
+| `REPRODUCING` | Step 4 entry |
+| `INVESTIGATING` | Step 4 hypothesis testing |
+| `ROOT_CAUSE_FOUND` | Step 4g |
+| `FIXING` | Step 6 entry |
+| `VERIFIED` | Step 7 exit (also sets `status: resolved`) |
+
+**Casing convention:** frontmatter `scope` is uppercase (`PROD`, `STAGING`, `LOCAL`). Datadog tag values and `--env` flags use lowercase (`prod`, `staging`).
+
 Create `$STATE_ROOT/<session-id>/DEBUG.md`:
 
 ```markdown
 ---
 session_id: <session-id>
 status: investigating
-phase: REPRODUCE
+phase: CLASSIFY
+scope: <PROD|STAGING|LOCAL>
+org: <2|197728|null>
+service: <service-name|null>
 created: <ISO timestamp>
 last_updated: <ISO timestamp>
 ---
@@ -117,15 +138,156 @@ last_updated: <ISO timestamp>
 
 Read the state file. Parse `phase` from frontmatter. Route to the appropriate phase. Read the Investigation Log to restore context.
 
-## Step 2: Phase 1 — Reproduce and Investigate
+## Step 2: Classify Bug Scope
+
+**Goal:** Decide whether to gather Datadog telemetry before reproducing.
+
+Inspect `$ARGUMENTS` and conversation for environment signals.
+
+| Signals | Scope | Datadog org |
+|---|---|---|
+| `my test`, `on my machine`, `local`, no service name, build/lint/unit failure | LOCAL | n/a — skip Phase 0 |
+| `prod`, `production`, `live`, `customer`, `incident`, `outage`, `5xx`, `pager`, named deployed service | PROD | org 2 (default — no `--org` flag) |
+| `staging`, `stage`, `pre-prod`, `test env`, `staging-deployed` | STAGING | org 197728 (`--org 197728`) |
+| Service name present but environment unclear | AMBIGUOUS | ask user |
+
+Datadog site is always `datadoghq.com`. Never pass `--site datad0g.com`.
+
+For AMBIGUOUS, use `AskUserQuestion`:
+
+```
+AskUserQuestion(questions=[{
+  "question": "Where is <service> deployed?",
+  "header": "Environment",
+  "multiSelect": false,
+  "options": [
+    {"label": "Production", "description": "Investigate Datadog org 2 (datadoghq.com)"},
+    {"label": "Staging",    "description": "Investigate Datadog org 197728 (datadoghq.com)"},
+    {"label": "Local only", "description": "Skip Phase 0, reproduce locally"}
+  ]
+}])
+```
+
+Persist the resolved scope to DEBUG.md frontmatter:
+
+```yaml
+scope: PROD | STAGING | LOCAL
+org: 2 | 197728 | null
+service: <service-name or null>
+```
+
+**Routing:**
+
+- `scope == LOCAL` → skip to Step 4 (Phase 1 — Reproduce).
+- `scope == PROD` or `scope == STAGING` → continue to Step 3 (Phase 0).
+
+## Step 3: Phase 0 — Observe in Production
+
+**Goal:** Gather Datadog telemetry to inform reproduction. NO hypotheses or fixes in this phase.
+
+Only runs when `scope != LOCAL`. For the full template and command recipe, see
+[references/production-telemetry.md](references/production-telemetry.md).
+
+Dispatch a Task subagent that invokes the `/datadog` skill with the correct org:
+
+```
+Task(
+  subagent_type = "general-purpose",
+  description = "Phase 0 telemetry for <service> in <env>",
+  prompt = "
+  <context>
+  Bug: <one-line description>
+  Service: <service-name>
+  Environment: <prod|staging>
+  Datadog org: <2|197728>          # leave empty for prod (default)
+  Datadog site: datadoghq.com      # always
+  Time window: last 1h (widen if no signal)
+  </context>
+
+  <role>
+  Read-only Datadog telemetry agent.
+  Use the productivity:datadog skill via the pup CLI.
+  </role>
+
+  <rules>
+  - Never pass --site (default datadoghq.com is correct).
+  - For staging: every pup command includes --org 197728.
+  - For prod: do not pass --org.
+  - All pup output is JSON. Cache to /tmp/debug-phase0-*.json.
+  - Batch initial queries in parallel with & ... wait.
+  </rules>
+
+  <task>
+  Run in parallel and summarize:
+  1. pup logs search --query 'service:<svc> status:error'
+  2. pup error-tracking issues search (jq-filter by service)
+  3. pup apm services stats --env <env> --start EPOCH --end EPOCH
+  4. pup events search --query 'source:deploy service:<svc>'
+  5. pup monitors list --tags 'service:<svc>'
+
+  Return:
+  - Top 3 error messages (count, first/last seen)
+  - Top 3 error-tracking issues (id, count)
+  - Slowest or failing traces (operation, duration, error)
+  - Last deploy in bug window (version, timestamp)
+  - Monitors currently in alert state
+  </task>
+
+  <constraints>
+  - Cite the exact pup command for every finding.
+  - Do not propose fixes or root causes.
+  - If empty results after widening to 4h, say so explicitly.
+  </constraints>"
+)
+```
+
+After the subagent returns, append findings to DEBUG.md under a new section:
+
+```markdown
+## Production Telemetry (Phase 0)
+
+- Service: <name>
+- Environment: <prod|staging>
+- Org: <2|197728>
+- Site: datadoghq.com
+- Time window: <from> to <to>
+
+### Top Errors
+- <count> x "<message>" — first <ts>, last <ts>
+
+### Top Error-Tracking Issues
+- ETI-<id>: <count> occurrences
+
+### Failing Traces
+- <operation> — <duration> — <error>
+
+### Recent Deploys
+- <version/commit> at <ts>
+
+### Alerting Monitors
+- <monitor-name> — <status>
+
+### Raw Responses
+- /tmp/debug-phase0-*.json
+```
+
+Set `phase: PHASE_0_COMPLETE` in DEBUG.md frontmatter and continue to Step 4.
+Phase 0 evidence feeds Phase 1 reproduction with precise timestamps, error
+strings, and request payloads.
+
+## Step 4: Phase 1 — Reproduce and Investigate
 
 **Goal:** Consistent reproduction and root cause identification. NO fixes allowed in this phase.
 
-### 2a: Read Error Messages Carefully
+If Phase 0 ran, read the Production Telemetry section of DEBUG.md first — its
+timestamps, error strings, and last-deploy entry usually shortcut reproduction
+and may eliminate the need for `git bisect`.
+
+### 4a: Read Error Messages Carefully
 
 Read the full error output — stack traces, warnings, and surrounding log lines. Do not skip past warnings.
 
-### 2b: Reproduce Consistently
+### 4b: Reproduce Consistently
 
 Before any investigation, reproduce the bug:
 
@@ -133,11 +295,15 @@ Before any investigation, reproduce the bug:
 2. Capture the full output.
 3. If it fails intermittently (flaky), run 3-5 times and note the pattern.
 
-**If you cannot reproduce:** Log this in the Investigation Log and explore recent changes (Step 2c) to understand what changed.
+**If you cannot reproduce:** Log this in the Investigation Log and explore recent changes (Step 4c) to understand what changed.
 
 Update the Reproduction section with exact steps and output.
 
-### 2c: Check Recent Changes
+### 4c: Check Recent Changes
+
+If Phase 0 captured a recent deploy event in the bug window, start with the
+commit/version from that event before running `git bisect` — it is the highest-prior
+candidate.
 
 ```bash
 git log --oneline -20
@@ -155,7 +321,7 @@ git bisect good <known-good-commit>
 # Then run the reproduction command at each bisect step
 ```
 
-### 2d: Gather Evidence
+### 4d: Gather Evidence
 
 Dispatch the `explorer` agent to map the relevant code area:
 
@@ -219,7 +385,7 @@ Task(
 )
 ```
 
-### 2e: Root Cause Tracing
+### 4e: Root Cause Tracing
 
 Apply backward tracing through the call chain. For detailed technique, see [references/root-cause-tracing.md](references/root-cause-tracing.md).
 
@@ -232,7 +398,7 @@ The sequence:
 
 At each level, verify values by reading the actual code — do not infer.
 
-### 2f: Form and Test Hypotheses
+### 4f: Form and Test Hypotheses
 
 State your theory: "I think X is root cause because Y" (cite evidence).
 
@@ -247,7 +413,7 @@ Add each hypothesis to the Hypotheses section:
 
 Test hypotheses one at a time. Update status to CONFIRMED or REJECTED with evidence.
 
-### 2g: Update State
+### 4g: Update State
 
 Update `DEBUG.md`:
 - Set `phase: ROOT_CAUSE_FOUND` (or `phase: INVESTIGATING` if not yet found)
@@ -256,7 +422,7 @@ Update `DEBUG.md`:
 
 **Do NOT proceed to Phase 2 until root cause is confirmed with evidence.**
 
-## Step 3: Phase 2 — Pattern Analysis
+## Step 5: Phase 2 — Pattern Analysis
 
 **Goal:** Understand the fix context before writing code.
 
@@ -276,11 +442,11 @@ Update `DEBUG.md`:
 
 Log findings in the Investigation Log.
 
-## Step 4: Phase 3 — Fix Implementation
+## Step 6: Phase 3 — Fix Implementation
 
 **Goal:** Minimal, targeted fix addressing the root cause.
 
-### 4a: Write Failing Test First
+### 6a: Write Failing Test First
 
 Create a test that reproduces the bug:
 
@@ -290,7 +456,7 @@ Create a test that reproduces the bug:
 
 **If a test cannot be written** (environment-specific, race condition): Document why in the Investigation Log and describe the manual verification method.
 
-### 4b: Implement Single Fix
+### 6b: Implement Single Fix
 
 Fix the root cause — not the symptom. Change one thing at a time.
 
@@ -333,7 +499,7 @@ Task(
 )
 ```
 
-### 4c: Add Defense-in-Depth
+### 6c: Add Defense-in-Depth
 
 After the primary fix, add validation at intermediate layers to prevent regression. See [references/defense-in-depth.md](references/defense-in-depth.md).
 
@@ -345,7 +511,7 @@ The four layers:
 
 Add only layers that are proportional to the bug's severity. A typo fix does not need four layers of defense.
 
-## Step 5: Phase 4 — Verification
+## Step 7: Phase 4 — Verification
 
 **Goal:** Prove the fix works and nothing else broke.
 
@@ -364,12 +530,12 @@ Update `DEBUG.md`:
 An "attempt" is one cycle of: hypothesis → fix → verification failure. Each attempt gets logged in the Investigation Log with what was tried and why it failed.
 
 If the fix doesn't work:
-- **Attempt < 3:** Return to Phase 1 (Step 2). The root cause analysis was incomplete — re-examine rejected hypotheses and gather new evidence.
+- **Attempt < 3:** Return to Phase 1 (Step 4). The root cause analysis was incomplete — re-examine rejected hypotheses and gather new evidence.
 - **Attempt >= 3:** Question the architecture. The bug may be structural — escalate to the user with all investigation findings.
 
 Log each attempt in the Investigation Log.
 
-## Step 6: Report
+## Step 8: Report
 
 Present a debug summary:
 
@@ -377,6 +543,8 @@ Present a debug summary:
 ## Debug Summary
 
 **Bug:** <one-line description>
+**Scope:** <PROD|STAGING|LOCAL> (org <2|197728|n/a>)
+**Phase 0 telemetry:** <key finding from prod data, or "skipped — local bug">
 **Root Cause:** <one-line explanation>
 **Fix:** <one-line description of the change>
 **Verification:** <test names and results>
@@ -394,3 +562,7 @@ Present a debug summary:
 | Fix attempt >= 3 fails | Stop. Present all investigation findings. Recommend architectural review. |
 | State file not found during resume | List existing debug sessions or start fresh. |
 | Flaky test (intermittent failure) | Run 10+ times. Check for shared state, timing dependencies, or resource contention. |
+| Phase 0 subagent returns empty results | Widen time window (1h → 4h → 24h). Verify service name matches Datadog `service:` tag. Confirm correct org (prod=2, staging=197728). |
+| `pup` returns 401 in Phase 0 | Subagent must run `pup auth login` (and `pup auth login --org 197728` for staging) and retry. |
+| Wrong site used (`datad0g.com`) | Stop. Re-run without `--site`. Default `datadoghq.com` is correct for both prod and staging services. |
+| Service environment genuinely ambiguous | `AskUserQuestion`: prod / staging / local. Persist to DEBUG.md frontmatter before running Phase 0. |
