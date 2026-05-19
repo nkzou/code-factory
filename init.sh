@@ -539,20 +539,6 @@ echo "Linked ${#pi_new_manifest[@]} entries to ~/.pi/agent/. Cleaned $pi_cleaned
 echo ""
 echo "Installing Pi packages..."
 if command -v pi &>/dev/null; then
-    # Community packages: helpers (subagent runtime ships locally under
-    # pi-extensions/subagent-runner/, so no third-party install needed)
-    PI_REMOTE_PACKAGES=(
-        "git:github.com/badlogic/pi-rtk"
-        "git:github.com/badlogic/pi-webfetch-to-markdown"
-    )
-    for pkg in "${PI_REMOTE_PACKAGES[@]}"; do
-        if pi install "$pkg" 2>&1 | tail -1; then
-            echo "  OK  $pkg"
-        else
-            echo "  WARN  $pkg install failed (may already be installed)"
-        fi
-    done
-
     # Datadog packages: clone-or-update the marketplace repo, then install by local path.
     # The repo root is intentionally a catalog, not a pi package -- each subdir under
     # packages/ must be installed individually.
